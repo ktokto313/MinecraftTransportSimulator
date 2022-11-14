@@ -251,6 +251,7 @@ public class RadioStation {
             //Check to make sure stream isn't an invalid type.
             switch (contentType) {
                 case ("audio/mpeg"):
+                    break;
                 case ("application/ogg"):
                     break;
                 case ("audio/x-wav"):

@@ -232,28 +232,30 @@ public class PartPropeller extends APart {
             //Finally, multiply by the air density, and a constant.  Less dense air causes less thrust force.
             thrust *= vehicleOn.airDensity / 25D * 1.5D;
 
-        //Get the angle of attack of the propeller.
-        //Note pitch velocity is in linear in meters per second,
-        //This means we need to convert it to meters per revolution before we can move on.
-        //This gets the angle as a ratio of forward pitch to propeller circumference.
-        //If the angle of attack is greater than 25 degrees (or a ratio of 0.4663), sap power off the propeller for stalling.
-        double angleOfAttack = ((desiredLinearVelocity - currentLinearVelocity) / (currentRPM / 60D)) / (definition.propeller.diameter * Math.PI * 0.0254D);
-        if (Math.abs(angleOfAttack) > 0.4663D) {
-            thrust *= 0.4663D / Math.abs(angleOfAttack);
-        }
+            //Get the angle of attack of the propeller.
+            //Note pitch velocity is in linear in meters per second,
+            //This means we need to convert it to meters per revolution before we can move on.
+            //This gets the angle as a ratio of forward pitch to propeller circumference.
+            //If the angle of attack is greater than 25 degrees (or a ratio of 0.4663), sap power off the propeller for stalling.
+            double angleOfAttack = ((desiredLinearVelocity - airstreamLinearVelocity) / (currentRPM / 60D)) / (definition.propeller.diameter * Math.PI * 0.0254D);
+            if (Math.abs(angleOfAttack) > 0.4663D) {
+                thrust *= 0.4663D / Math.abs(angleOfAttack);
+            }
 
-        //If the propeller is in the water, increase thrust.
-        if (isInLiquid()) {
-            thrust *= 50;
-        }
+            //If the propeller is in the water, increase thrust.
+            if (isInLiquid()) {
+                thrust *= 50;
+            }
 
-        //Add propeller force to total engine force as a vector.
-        //Depends on propeller orientation, as upward propellers provide upwards thrust.
-        propellerForce.set(propellerAxisVector).scale(thrust);
-        force.add(propellerForce);
-        propellerForce.reOrigin(vehicleOn.orientation);
-        torque.y -= propellerForce.z * localOffset.x;
-        torque.z += propellerForce.y * localOffset.x;
+            //Add propeller force to total engine force as a vector.
+            //Depends on propeller orientation, as upward propellers provide upwards thrust.
+            propellerForceValue += thrust;
+            propellerForce.set(propellerAxisVector).scale(thrust);
+            force.add(propellerForce);
+            propellerForce.reOrigin(vehicleOn.orientation);
+            torque.y -= propellerForce.z * localOffset.x;
+            torque.z += propellerForce.y * localOffset.x;
+        }
         return propellerForceValue;
     }
 }

@@ -16,6 +16,7 @@ import minecrafttransportsimulator.mcinterface.IWrapperPlayer;
 import minecrafttransportsimulator.mcinterface.InterfaceManager;
 import minecrafttransportsimulator.packets.instances.PacketEntityVariableIncrement;
 import minecrafttransportsimulator.packets.instances.PacketEntityVariableSet;
+import minecrafttransportsimulator.packets.instances.PacketPlayerChatMessage;
 import minecrafttransportsimulator.systems.ConfigSystem;
 
 /**
@@ -146,6 +147,13 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
     private final Point3D thrustTorque = new Point3D();//kg*m^2/ticks^2
     private final Point3D totalTorque = new Point3D();//kg*m^2/ticks^2
     private final Point3D rotorRotation = new Point3D();//degrees
+
+    //Autopilot setting
+    private double apHeading;
+    private double apAltitude;
+    private double apVerticalSpeed;
+    private double apSpeed;
+    private boolean apFollowNav;
 
     public EntityVehicleF_Physics(AWrapperWorld world, IWrapperPlayer placingPlayer, IWrapperNBT data) {
         super(world, placingPlayer, data);
@@ -642,13 +650,14 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
         } else if (definition.motorized.isAircraft && autopilotSetting != 0) {
             //Normal aircraft.  Do autopilot operations if required.
             //If we are not flying at a steady elevation, angle the elevator to compensate
-            if (-motion.y * 100 > elevatorTrim + 1 && elevatorTrim < MAX_ELEVATOR_TRIM) {
+            if (-motion.y * 10 > elevatorTrim + 1 && elevatorTrim < MAX_ELEVATOR_TRIM) {
                 setVariable(ELEVATOR_TRIM_VARIABLE, elevatorTrim + 0.1);
                 InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, ELEVATOR_TRIM_VARIABLE, 0.1));
-            } else if (-motion.y * 100 < elevatorTrim - 1 && elevatorTrim > -MAX_ELEVATOR_TRIM) {
+            } else if (-motion.y * 10 < elevatorTrim - 1 && elevatorTrim > -MAX_ELEVATOR_TRIM) {
                 setVariable(ELEVATOR_TRIM_VARIABLE, elevatorTrim - 0.1);
                 InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, ELEVATOR_TRIM_VARIABLE, -0.1));
             }
+            /*
             //Keep the roll angle at 0.
             if (-orientation.angles.z > aileronTrim + 0.1 && aileronTrim < MAX_AILERON_TRIM) {
                 setVariable(AILERON_TRIM_VARIABLE, aileronTrim + 0.1);
@@ -656,7 +665,140 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
             } else if (-orientation.angles.z < aileronTrim - 0.1 && aileronTrim > -MAX_AILERON_TRIM) {
                 setVariable(AILERON_TRIM_VARIABLE, aileronTrim - 0.1);
                 InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, -0.1));
+            }*/
+            //Idea get the aircraft within 3 degree within the localizer and then set it heading to match the beacon bearing
+            //First check if the aircraft in within 45 deg from the front of the localizer and got it valid otherwise turn off nav mod
+            //Testing phase getting plane into the localizer
+            //Get the aircraft to turn left or right based on the difference in angle, we can do like if delta is 10, do -30 of beacon heading
+
+            String message = "empty";
+
+            /*apHeading = 360;
+
+            Double bearing = -orientation.angles.y - apHeading - 180;
+
+            while (bearing < -180)
+                bearing += 360;
+            while (bearing > 180)
+                bearing -= 360;
+
+            double turnAngle = Math.abs(bearing) > 10 ? 45 : Math.abs(bearing);
+
+            //Code to turn right
+            if (bearing < -0.1 && aileronTrim < MAX_AILERON_TRIM) {
+                if (orientation.angles.z < -aileronTrim + turnAngle) {
+                    setVariable(AILERON_TRIM_VARIABLE, aileronTrim + 0.1);
+                    InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, 0.1));
+                } else {
+                    message = "turning right and trim left";
+                    setVariable(AILERON_TRIM_VARIABLE, aileronTrim - 0.1);
+                    InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, -0.1));
+                }
+            //Code to turn left
+            } else if (bearing > 0.1 && aileronTrim > -MAX_AILERON_TRIM) {
+                if (orientation.angles.z > -aileronTrim - turnAngle) {
+                    message = "turning left and trim right"
+                    setVariable(AILERON_TRIM_VARIABLE, aileronTrim - 0.1);
+                    InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, -0.1));
+                } else {
+                    message = "turning left and trim left";
+                    setVariable(AILERON_TRIM_VARIABLE, aileronTrim + 0.1);
+                    InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, 0.1));
+                }
+            }*/
+
+            //Absolutely messed up the horizontal stabilization system
+            if (selectedBeacon != null) {
+                double bearingDelta = selectedBeacon.getBearingDelta(this);
+                if (Math.abs(bearingDelta) > 3) {
+                    double offset = Math.abs(bearingDelta); //Math.abs(bearingDelta) > 10 ? -bearingDelta : -bearingDelta * 3;
+                    apHeading = offset + selectedBeacon.bearing - 180;
+                } else {
+                    apHeading = selectedBeacon.bearing - 180;
+                }
+
+                apHeading = 360;
+                while (apHeading < 0) {
+                    apHeading += 360;
+                }
+                while (apHeading > 0) {
+                    apHeading -= 360;
+                }
+
+                double bearing = -orientation.angles.y - apHeading - 180;
+
+                while (bearing < -180)
+                    bearing += 360;
+                while (bearing > 180)
+                    bearing -= 360;
+
+                double turnAngle = Math.abs(bearing) > 15 ? 45 : Math.abs(bearing);
+
+                //Messy stabilization code that make aircraft barrel roll
+                //The thing that got the barrel is, make aircraft fully turn left then make it fully turn right
+                //Make some code to anti this behaviour
+
+                //sometime -trimAngle + turn angle surpass 45 degree
+
+                //When go too fast, plane will be quite sensitive
+                //Maybe check the torque for speed limit
+
+                //Maybe try other way that doesn't involved in put the plane at max trim for too long
+
+                //Tried to modify the Max trim angle when at high speed
+                //((95*speedFactor/velocity) > 1 ? 1 : (95*speedFactor/velocity))
+                //multiply the -aileronTrim with 2
+                //smoothing the trim when close to 0 angle
+                //orientation.angles.z < 0.1 ? orientation.angles.z < -aileronTrim : orientation.angles.z < -aileronTrim + turnAngle
+
+                //Plane start to jiggle very hard when turn angle is small and then go absolutely off track
+                //If we stable the plane manually, it will go on track very well
+                //The cause is the algorithm, as plane at 30 degree delta need to bank 90 degree
+                //And when we come too close, it needs to turn left 90 degrees and then turn right 90 degrees
+
+                //Idea: add distance related variable to this that also help define the turn angle
+                //Add autocorrect to the bearing
+
+                double maxTrim = MAX_AILERON_TRIM * ((95*speedFactor/velocity) > 1 ? 1 : (95*speedFactor/velocity));
+
+                //Code to turn right
+                if (bearing < -0.1 && aileronTrim < maxTrim) {
+                    if (orientation.angles.z < -aileronTrim + turnAngle) {
+                        message = "turning right and trim right";
+                        setVariable(AILERON_TRIM_VARIABLE, aileronTrim + 0.1);
+                        InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, 0.1));
+                    } else {
+                        message = "turning right and trim left";
+                        setVariable(AILERON_TRIM_VARIABLE, aileronTrim - 0.1);
+                        InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, -0.1));
+                    }//Code to turn left
+                } else if (bearing > 0.1 && aileronTrim > -maxTrim) {
+                    if (orientation.angles.z > -aileronTrim - turnAngle) {
+                        message = "turning left and trim left";
+                        setVariable(AILERON_TRIM_VARIABLE, aileronTrim - 0.1);
+                        InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, -0.1));
+                    } else {
+                        message = "turning left and trim right";
+                        setVariable(AILERON_TRIM_VARIABLE, aileronTrim + 0.1);
+                        InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, 0.1));
+                    }
+                }
+                if (aileronTrim >= maxTrim) {
+                    setVariable(AILERON_TRIM_VARIABLE, aileronTrim - 0.1);
+                    InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, -0.1));
+                } else if (aileronTrim <= -maxTrim) {
+                    setVariable(AILERON_TRIM_VARIABLE, aileronTrim + 0.1);
+                    InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, AILERON_TRIM_VARIABLE, 0.1));
+                }
+                message += " " + maxTrim;
             }
+
+            //TODO remove message variable and this code section below
+            if (this.lastController instanceof IWrapperPlayer) {
+                IWrapperPlayer player = this.lastController;
+                player.sendPacket(new PacketPlayerChatMessage(player, message));
+            }
+
         }
 
         //If we don't have controllers, reset control states to 0.

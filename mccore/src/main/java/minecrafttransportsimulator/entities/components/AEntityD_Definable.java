@@ -5,6 +5,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -132,6 +134,12 @@ public abstract class AEntityD_Definable<JSONDefinition extends AJSONMultiModelP
      **/
     private AItemPack<JSONDefinition> cachedItem;
 
+    //Radar lists.  Only updated once a tick.  Created when first requested via animations.
+    private List<EntityVehicleF_Physics> aircraftOnRadar;
+    private List<EntityVehicleF_Physics> groundersOnRadar;
+    private int radarRequestCooldown;
+    private Comparator<AEntityB_Existing> entityComparator;
+
     /**
      * Constructor for synced entities
      **/
@@ -177,6 +185,41 @@ public abstract class AEntityD_Definable<JSONDefinition extends AJSONMultiModelP
         if (!animationsInitialized) {
             initializeAnimations();
             animationsInitialized = true;
+        }
+        //Only update radar once a second, and only if we requested it via variables.
+        if (radarRequestCooldown > 0 && ticksExisted % 20 == 0) {
+            if (entityComparator == null) {
+                entityComparator = new Comparator<AEntityB_Existing>() {
+                    @Override
+                    public int compare(AEntityB_Existing o1, AEntityB_Existing o2) {
+                        return position.isFirstCloserThanSecond(o1.position, o2.position) ? -1 : 1;
+                    }
+
+                };
+            }
+
+            Collection<EntityVehicleF_Physics> allVehicles = world.getEntitiesOfType(EntityVehicleF_Physics.class);
+            if (aircraftOnRadar == null) {
+                aircraftOnRadar = new ArrayList<EntityVehicleF_Physics>();
+            } else {
+                aircraftOnRadar.clear();
+            }
+            if (groundersOnRadar == null) {
+                groundersOnRadar = new ArrayList<EntityVehicleF_Physics>();
+            } else {
+                groundersOnRadar.clear();
+            }
+            for (EntityVehicleF_Physics vehicle : allVehicles) {
+                if (!vehicle.outOfHealth && vehicle != this) {
+                    if (vehicle.definition.motorized.isAircraft) {
+                        aircraftOnRadar.add(vehicle);
+                    } else {
+                        groundersOnRadar.add(vehicle);
+                    }
+                }
+            }
+            aircraftOnRadar.sort(entityComparator);
+            groundersOnRadar.sort(entityComparator);
         }
         world.endProfiling();
     }
@@ -544,7 +587,6 @@ public abstract class AEntityD_Definable<JSONDefinition extends AJSONMultiModelP
         }
     }
 
-    @SuppressWarnings("RedundantCast")
     @Override
     public void updateSounds(float partialTicks) {
         super.updateSounds(partialTicks);
@@ -552,10 +594,24 @@ public abstract class AEntityD_Definable<JSONDefinition extends AJSONMultiModelP
         for (JSONSound soundDef : allSoundDefs) {
             if (soundDef.canPlayOnPartialTicks ^ partialTicks == 0) {
                 //Check if the sound should be playing before we try to update state.
+                //First check if we are in the right view to play.
                 AEntityB_Existing entityRiding = InterfaceManager.clientInterface.getClientPlayer().getEntityRiding();
                 boolean playerRidingEntity = this.equals(entityRiding) || (this instanceof AEntityF_Multipart && ((AEntityF_Multipart<?>) this).allParts.contains(entityRiding)) || (this instanceof APart && ((APart) this).masterEntity.allParts.contains(entityRiding));
                 boolean shouldSoundStartPlaying = playerRidingEntity && InterfaceManager.clientInterface.inFirstPerson() && !CameraSystem.runningCustomCameras ? !soundDef.isExterior : !soundDef.isInterior;
                 boolean anyClockMovedThisUpdate = false;
+
+                //Next, check the distance.
+                double distance = 0;
+                if (shouldSoundStartPlaying) {
+                    distance = position.distanceTo(InterfaceManager.clientInterface.getClientPlayer().getPosition());
+                    if (soundDef.maxDistance != soundDef.minDistance) {
+                        shouldSoundStartPlaying = distance < soundDef.maxDistance && distance > soundDef.minDistance;
+                    } else {
+                        shouldSoundStartPlaying = distance < 32;
+                    }
+                }
+
+                //Next, check animations.
                 if (shouldSoundStartPlaying) {
                     AnimationSwitchbox activeSwitchbox = soundActiveSwitchboxes.get(soundDef);
                     shouldSoundStartPlaying = activeSwitchbox.runSwitchbox(partialTicks, true);
@@ -615,6 +671,13 @@ public abstract class AEntityD_Definable<JSONDefinition extends AJSONMultiModelP
                         } else if (sound.volume < 0) {
                             sound.volume = 0;
                         }
+
+                        //Adjust volume based on distance.
+                        if (soundDef.minDistance == 0) {
+                            double maxDistance = soundDef.maxDistance != 0 ? soundDef.maxDistance : 32;
+                            sound.volume *= (maxDistance - distance) / (maxDistance);
+                        }
+
 
                         //If the player is in a closed-top vehicle that isn't this one, dampen the sound
                         //Unless it's a radio, in which case don't do so.
@@ -712,6 +775,8 @@ public abstract class AEntityD_Definable<JSONDefinition extends AJSONMultiModelP
                 return world.isBlockLiquid(position) ? 1 : 0;
             case ("config_simplethrottle"):
                 return ConfigSystem.client.controlSettings.simpleThrottle.value ? 1 : 0;
+            case ("config_innerwindows"):
+                return ConfigSystem.client.renderingSettings.innerWindows.value ? 1 : 0;
         }
 
         //Check if this is a cycle variable.
@@ -732,6 +797,43 @@ public abstract class AEntityD_Definable<JSONDefinition extends AJSONMultiModelP
                     return !text.get(definition.rendering.textObjects.get(textIndex)).isEmpty() ? 1 : 0;
                 }
             }
+            return 0;
+        }
+
+        //Check if this is a radar variable.
+        if (variable.startsWith("radar_")) {
+            if (radarRequestCooldown != 0 && entityComparator != null) {
+                String[] parsedVariable = variable.split("_");
+                List<? extends AEntityB_Existing> radarList;
+                switch (parsedVariable[1]) {
+                    case ("aircraft"):
+                        radarList = aircraftOnRadar;
+                        break;
+                    case ("ground"):
+                        radarList = groundersOnRadar;
+                        break;
+                    default:
+                        //Can't continue, as we expect non-null.
+                        return 0;
+                }
+                int index = Integer.parseInt(parsedVariable[2]);
+                if (index < radarList.size()) {
+                    AEntityB_Existing contact = radarList.get(index);
+                    switch (parsedVariable[3]) {
+                        case ("distance"):
+                            return contact.position.distanceTo(position);
+                        case ("direction"):
+                            return Math.toDegrees(Math.atan2(-contact.position.z + position.z, -contact.position.x + position.x)) + 90 + orientation.angles.y;
+                        case ("speed"):
+                            return contact.velocity;
+                        case ("altitude"):
+                            return contact.position.y;
+                        case ("angle"):
+                            return -Math.toDegrees(Math.atan2(-contact.position.y + position.y,Math.hypot(-contact.position.z + position.z,-contact.position.x + position.x))) + orientation.angles.x;
+                    }
+                }
+            }
+            radarRequestCooldown = 40;
             return 0;
         }
 

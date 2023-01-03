@@ -36,8 +36,21 @@ public class JSONParticle {
     @JSONDescription("Like above, but tells the particle to gradually change from its initial scale to this value.  Defaults to 1.0 if this and scale are not set.")
     public float toScale;
 
-    @JSONDescription("Normally particles use the standard particle texture.  However, one can specify a texture sheet to use if they wish.  Format is packID:path/to/texture.")
+    @JSONDescription("How much off-zero the particle will be when spawned, in the XZ plane.  0 is no spread, higher values have higher spread.  This is per-particle, so if quantity is 10 they will all have different spread.")
+    public float spreadFactorHorizontal;
+
+    @JSONDescription("Like spreadFactorHorizontal, just for the vertical (Y) component.")
+    public float spreadFactorVertical;
+
+    @JSONDescription("Normally particles use built-in textures.  However, one can specify a texture sheet to use if they wish.  Format is packID:path/to/texture.")
     public String texture;
+
+    @JSONDescription("If you want your particle to have multiple textures, you can specify the texture PNG files to use here.  The delay between each texture segment is goverend by the textureDelay variable.  If you delay past the last texture, the cycle repeats.")
+    public List<String> textureList;
+
+    @JSONRequired(dependentField = "textureList")
+    @JSONDescription("A list of delays between cycling to the next texture.  If the end of this list is reached, the delay sequence will repeat from the start of the list.")
+    public List<Integer> textureDelays;
 
     @JSONDescription("A string in hexadecimal format representing the particle's color.  Defaults to white if not set, which essentially does no color modification.")
     public ColorRGB color;
@@ -72,7 +85,7 @@ public class JSONParticle {
         SMOKE,
         @JSONDescription("The standard (torch) flame particle.")
         FLAME,
-        @JSONDescription("The standard water/drip particle.")
+        @Deprecated
         DRIP,
         @JSONDescription("The standard bubble particle.")
         BUBBLE,

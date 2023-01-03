@@ -7,10 +7,10 @@ import java.util.Map;
 import minecrafttransportsimulator.baseclasses.BoundingBox;
 import minecrafttransportsimulator.baseclasses.Point3D;
 import minecrafttransportsimulator.entities.components.AEntityB_Existing;
+import minecrafttransportsimulator.entities.components.AEntityF_Multipart;
 import minecrafttransportsimulator.entities.instances.APart;
 import minecrafttransportsimulator.entities.instances.EntityBullet;
 import minecrafttransportsimulator.entities.instances.EntityParticle;
-import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
 import minecrafttransportsimulator.guis.components.AGUIBase;
 import minecrafttransportsimulator.guis.instances.GUIPackMissing;
 import minecrafttransportsimulator.mcinterface.IInterfaceClient;
@@ -119,6 +119,16 @@ public class InterfaceClient implements IInterfaceClient {
     }
 
     @Override
+    public float getMouseSensitivity() {
+        return Minecraft.getMinecraft().gameSettings.mouseSensitivity;
+    }
+
+    @Override
+    public void setMouseSensitivity(float setting) {
+        Minecraft.getMinecraft().gameSettings.mouseSensitivity = setting;
+    }
+
+    @Override
     public float getFOV() {
         return Minecraft.getMinecraft().gameSettings.fovSetting;
     }
@@ -137,11 +147,11 @@ public class InterfaceClient implements IInterfaceClient {
             if (lastHit.entityHit != null) {
                 if (lastHit.entityHit instanceof BuilderEntityExisting) {
                     AEntityB_Existing mousedOverEntity = ((BuilderEntityExisting) lastHit.entityHit).entity;
-                    if (mousedOverEntity instanceof EntityVehicleF_Physics) {
-                        EntityVehicleF_Physics vehicle = (EntityVehicleF_Physics) mousedOverEntity;
-                        for (BoundingBox box : vehicle.allInteractionBoxes) {
+                    if (mousedOverEntity instanceof AEntityF_Multipart) {
+                        AEntityF_Multipart<?> multipart = (AEntityF_Multipart<?>) mousedOverEntity;
+                        for (BoundingBox box : multipart.allInteractionBoxes) {
                             if (box.isPointInside(mousedOverPoint)) {
-                                APart part = vehicle.getPartWithBox(box);
+                                APart part = multipart.getPartWithBox(box);
                                 if (part != null) {
                                     return part;
                                 }

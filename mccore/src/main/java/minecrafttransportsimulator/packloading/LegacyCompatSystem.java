@@ -610,11 +610,6 @@ public final class LegacyCompatSystem {
             }
         }
 
-        //Set default health.
-        if (definition.general.health == 0) {
-            definition.general.health = 100;
-        }
-
         //Set engine new parameters.
         if (definition.engine != null) {
             //Add engine type if it is missing.
@@ -763,6 +758,12 @@ public final class LegacyCompatSystem {
                 muzzle.pos = new Point3D(0, 0, definition.gun.length);
                 muzzleGroup.muzzles.add(muzzle);
                 definition.gun.muzzleGroups.add(muzzleGroup);
+            }
+            if (definition.gun.lockOnType == null) {
+                definition.gun.lockOnType = JSONPart.LockOnType.DEFAULT;
+            }
+            if (definition.gun.targetType == null) {
+                definition.gun.targetType = JSONPart.TargetType.ALL;
             }
             definition.gun.length = 0;
         }
@@ -1552,23 +1553,25 @@ public final class LegacyCompatSystem {
             if (definition.rendering != null && definition.rendering.textObjects != null) {
                 for (int i = 0; i < definition.rendering.textObjects.size(); ++i) {
                     JSONText textDef = definition.rendering.textObjects.get(i);
-                    switch (i % 3) {
-                        case (0): {
-                            textDef.variableName = "fuelpump_fluid";
-                            textDef.variableFormat = "%s";
-                            break;
-                        }
-                        case (1): {
-                            textDef.variableName = "fuelpump_stored";
-                            textDef.variableFactor = 0.001F;
-                            textDef.variableFormat = "LVL:%04.1fb";
-                            break;
-                        }
-                        case (2): {
-                            textDef.variableName = "fuelpump_dispensed";
-                            textDef.variableFactor = 0.001F;
-                            textDef.variableFormat = "DISP:%04.1fb";
-                            break;
+                    if (textDef.variableName == null) {
+                        switch (i % 3) {
+                            case (0): {
+                                textDef.variableName = "fuelpump_fluid";
+                                textDef.variableFormat = "%s";
+                                break;
+                            }
+                            case (1): {
+                                textDef.variableName = "fuelpump_stored";
+                                textDef.variableFactor = 0.001F;
+                                textDef.variableFormat = "LVL:%04.1fb";
+                                break;
+                            }
+                            case (2): {
+                                textDef.variableName = "fuelpump_dispensed";
+                                textDef.variableFactor = 0.001F;
+                                textDef.variableFormat = "DISP:%04.1fb";
+                                break;
+                            }
                         }
                     }
                 }
@@ -2242,6 +2245,9 @@ public final class LegacyCompatSystem {
     private static void performModelLegacyCompats(AJSONMultiModelProvider definition) {
         if (definition.rendering == null) {
             definition.rendering = new JSONRendering();
+        } else if (definition.rendering.particles != null) {
+            //Remove any drip particles, those don't exist anymore.
+            definition.rendering.particles.removeIf(particle -> particle.type == JSONParticle.ParticleType.DRIP);
         }
 
         try {

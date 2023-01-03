@@ -47,6 +47,7 @@ public class PartGroundDevice extends APart {
     private float currentLateralFriction;
     @ModifiedValue
     private float currentHeight;
+    public final Point3D wheelbasePoint;
 
     //Internal states for control and physics.
     public boolean isFlat;
@@ -64,6 +65,16 @@ public class PartGroundDevice extends APart {
         this.isFlat = data.getBoolean("isFlat");
         this.prevLocalOffset = localOffset.copy();
         this.zeroReferencePosition = position.copy();
+        this.wheelbasePoint = placementDefinition.pos.copy();
+        AEntityF_Multipart<?> parent = entityOn;
+        while(parent instanceof APart) {
+            APart parentPart = (APart) parent;
+            if(parentPart.placementDefinition.rot != null) {
+                wheelbasePoint.rotate(parentPart.placementDefinition.rot);
+            }
+            wheelbasePoint.add(parentPart.placementDefinition.pos);
+            parent = parentPart.entityOn;
+        }
     }
 
     @Override
@@ -89,7 +100,7 @@ public class PartGroundDevice extends APart {
     @Override
     public void attack(Damage damage) {
         super.attack(damage);
-        if (!damage.isWater && (damage.isExplosion || Math.random() < 0.5 || damageAmount > definition.general.health)) {
+        if (!damage.isWater && (damage.isExplosion || Math.random() < 0.5 || outOfHealth)) {
             setFlatState(true);
         }
     }

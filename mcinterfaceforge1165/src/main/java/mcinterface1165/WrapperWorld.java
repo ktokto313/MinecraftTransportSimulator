@@ -8,7 +8,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -247,6 +246,15 @@ public class WrapperWorld extends AWrapperWorld {
     }
 
     @Override
+    public List<IWrapperPlayer> getPlayersWithin(BoundingBox box) {
+        List<IWrapperPlayer> players = new ArrayList<>();
+        for (PlayerEntity player : world.getEntitiesOfClass(PlayerEntity.class, WrapperWorld.convert(box))) {
+            players.add(WrapperPlayer.getWrapperFor(player));
+        }
+        return players;
+    }
+
+    @Override
     public List<IWrapperEntity> getEntitiesHostile(IWrapperEntity lookingEntity, double radius) {
         List<IWrapperEntity> entities = new ArrayList<>();
         Entity mcLooker = ((WrapperEntity) lookingEntity).entity;
@@ -257,31 +265,6 @@ public class WrapperWorld extends AWrapperWorld {
         }
         return entities;
     }
-
-    @Override
-    public IWrapperEntity getEntityLookingAt(IWrapperEntity entityLooking, float searchDistance, boolean generalArea) {
-        double smallestDistance = searchDistance * 2;
-        Entity foundEntity = null;
-        Entity mcLooker = ((WrapperEntity) entityLooking).entity;
-        Vector3d raytraceStart = mcLooker.position().add(0, (entityLooking.getEyeHeight() + entityLooking.getSeatOffset()), 0);
-        Point3D lookerLos = entityLooking.getLineOfSight(searchDistance);
-        Vector3d raytraceEnd = new Vector3d(lookerLos.x, lookerLos.y, lookerLos.z).add(raytraceStart);
-        for (Entity entity : world.getEntities(mcLooker, mcLooker.getBoundingBox().inflate(searchDistance))) {
-            if (!(entity instanceof ABuilderEntityBase) && entity.canBeCollidedWith() && !entity.equals(mcLooker.getVehicle())) {
-                float distance = mcLooker.distanceTo(entity);
-                if (distance < smallestDistance) {
-                    AxisAlignedBB testBox = generalArea ? entity.getBoundingBox().inflate(2) : entity.getBoundingBox();
-                    Optional<Vector3d> rayHit = testBox.clip(raytraceStart, raytraceEnd);
-                    if (rayHit != null) {
-                        smallestDistance = distance;
-                        foundEntity = entity;
-                    }
-                }
-            }
-        }
-        return WrapperEntity.getWrapperFor(foundEntity);
-    }
-
     @Override
     public void spawnEntity(AEntityB_Existing entity) {
         spawnEntityInternal(entity);
@@ -291,7 +274,7 @@ public class WrapperWorld extends AWrapperWorld {
      * Internal method to spawn entities and return their builders.
      */
     protected BuilderEntityExisting spawnEntityInternal(AEntityB_Existing entity) {
-        BuilderEntityExisting builder = new BuilderEntityExisting(((WrapperWorld) entity.world).world);
+        BuilderEntityExisting builder = new BuilderEntityExisting(BuilderEntityExisting.E_TYPE2, ((WrapperWorld) entity.world).world);
         builder.loadedFromSavedNBT = true;
         builder.setPos(entity.position.x, entity.position.y, entity.position.z);
         builder.entity = entity;
@@ -921,7 +904,7 @@ public class WrapperWorld extends AWrapperWorld {
                     //This way if we're in the world, but not valid we will know.
                     if (gunBuilder.level != player.level || !player.isAlive() || !gunBuilder.entity.isValid || gunBuilder.idleTickCounter == 20) {
                         //Follower is not linked.  Remove it and re-create in code below.
-                        gunBuilder.setDead();
+                        gunBuilder.remove();
                         playerServerGunBuilders.remove(playerUUID);
                         ticksSincePlayerJoin.remove(playerUUID);
                     } else {

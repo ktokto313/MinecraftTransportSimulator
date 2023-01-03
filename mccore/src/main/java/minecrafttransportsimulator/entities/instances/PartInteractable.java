@@ -10,7 +10,6 @@ import minecrafttransportsimulator.jsondefs.JSONConfigLanguage;
 import minecrafttransportsimulator.jsondefs.JSONConfigLanguage.LanguageEntry;
 import minecrafttransportsimulator.jsondefs.JSONPart.InteractableComponentType;
 import minecrafttransportsimulator.jsondefs.JSONPartDefinition;
-import minecrafttransportsimulator.mcinterface.IWrapperEntity;
 import minecrafttransportsimulator.mcinterface.IWrapperItemStack;
 import minecrafttransportsimulator.mcinterface.IWrapperNBT;
 import minecrafttransportsimulator.mcinterface.IWrapperPlayer;
@@ -46,7 +45,7 @@ public final class PartInteractable extends APart {
             }
         }
         if (definition.interactable.interactionType.equals(InteractableComponentType.BARREL)) {
-            this.tank = new EntityFluidTank(world, data.getDataOrNew("tank"), (int) definition.interactable.inventoryUnits * 10000);
+            this.tank = new EntityFluidTank(world, data.getDataOrNew("tank"), (int) (definition.interactable.inventoryUnits * 10000));
             world.addEntity(tank);
         } else {
             this.tank = null;
@@ -87,7 +86,7 @@ public final class PartInteractable extends APart {
     @Override
     public void attack(Damage damage) {
         super.attack(damage);
-        if (!damage.isWater && (damage.amount > 25 || damageAmount > definition.general.health)) {
+        if (!damage.isWater && damage.amount > 25) {
             destroy(damage.box);
         }
     }
@@ -101,7 +100,7 @@ public final class PartInteractable extends APart {
                 world.spawnExplosion(position, 0.25, false);
             } else {
                 world.spawnExplosion(position, explosivePower, true);
-                entityOn.destroy(boundingBox);
+                masterEntity.destroy(masterEntity.boundingBox);
             }
         } else {
             super.destroy(box);
@@ -165,10 +164,8 @@ public final class PartInteractable extends APart {
             if (linkedMessage != null) {
                 linkedVehicle = null;
                 linkedPart = null;
-                for (IWrapperEntity entity : world.getEntitiesWithin(new BoundingBox(position, 16, 16, 16))) {
-                    if (entity instanceof IWrapperPlayer) {
-                        ((IWrapperPlayer) entity).sendPacket(new PacketPlayerChatMessage((IWrapperPlayer) entity, linkedMessage));
-                    }
+                for (IWrapperPlayer player : world.getPlayersWithin(new BoundingBox(position, 16, 16, 16))) {
+                    player.sendPacket(new PacketPlayerChatMessage(player, linkedMessage));
                 }
             }
         }

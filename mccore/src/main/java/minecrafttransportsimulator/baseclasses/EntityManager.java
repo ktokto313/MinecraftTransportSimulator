@@ -1,5 +1,7 @@
 package minecrafttransportsimulator.baseclasses;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -7,6 +9,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import minecrafttransportsimulator.entities.components.AEntityA_Base;
 import minecrafttransportsimulator.entities.components.AEntityC_Renderable;
 import minecrafttransportsimulator.entities.components.AEntityE_Interactable;
+import minecrafttransportsimulator.entities.components.AEntityF_Multipart;
+import minecrafttransportsimulator.entities.instances.APart;
+import minecrafttransportsimulator.entities.instances.EntityPlacedPart;
+import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
 
 /**
  * Class that manages entities in a world or other area.
@@ -67,40 +73,33 @@ public class EntityManager {
     }
 
     /**
-     * Returns the closest entity of the specified class that intersects the ray-traced line,
-     * or null if none does. This up-scales the entity Bounding Boxes to
-     * allow for a somewhat easier targeting scheme if generalArea is true.
+     * Gets the closest multipart intersected with, be it a vehicle, a part on that vehicle, or a placed part.
+     * If nothing is intersected, null is returned.
      */
-    public <EntityType extends AEntityE_Interactable<?>> EntityType getRaytraced(Class<EntityType> entityClass, Point3D start, Point3D end, boolean generalArea, EntityType entityToIgnore) {
-        BoundingBox closestBox = null;
-        EntityType closestEntity = null;
-        BoundingBox clickBounds = new BoundingBox(start, end);
-        for (EntityType entity : getEntitiesOfType(entityClass)) {
-            if (!entity.equals(entityToIgnore) && entity.encompassingBox.intersects(clickBounds)) {
-                //Could have hit this entity, check if we did via raytracing.
-                for (BoundingBox box : entity.getInteractionBoxes()) {
-                    boolean intersects;
-                    if (generalArea) {
-                        box.widthRadius += 2;
-                        box.heightRadius += 2;
-                        box.depthRadius += 2;
-                        intersects = box.intersects(clickBounds) && box.getIntersectionPoint(start, end) != null;
-                        box.widthRadius -= 2;
-                        box.heightRadius -= 2;
-                        box.depthRadius -= 2;
-                    } else {
-                        intersects = box.intersects(clickBounds) && box.getIntersectionPoint(start, end) != null;
-                    }
-                    if (intersects) {
-                        if (closestBox == null || start.isFirstCloserThanSecond(box.globalCenter, closestBox.globalCenter)) {
-                            closestBox = box;
-                            closestEntity = entity;
+    public EntityInteractResult getMultipartEntityIntersect(Point3D startPoint, Point3D endPoint) {
+        EntityInteractResult closestResult = null;
+        BoundingBox vectorBounds = new BoundingBox(startPoint, endPoint);
+        List<AEntityF_Multipart<?>> multiparts = new ArrayList<>();
+        multiparts.addAll(getEntitiesOfType(EntityVehicleF_Physics.class));
+        multiparts.addAll(getEntitiesOfType(EntityPlacedPart.class));
+
+        for (AEntityF_Multipart<?> multipart : multiparts) {
+            if (multipart.encompassingBox.intersects(vectorBounds)) {
+                //Could have hit this multipart, check if and what we did via raytracing.
+                for (BoundingBox box : multipart.allInteractionBoxes) {
+                    if (box.intersects(vectorBounds)) {
+                        Point3D intersectionPoint = box.getIntersectionPoint(startPoint, endPoint);
+                        if (intersectionPoint != null) {
+                            if (closestResult == null || startPoint.isFirstCloserThanSecond(intersectionPoint, closestResult.point)) {
+                                APart part = multipart.getPartWithBox(box);
+                                closestResult = new EntityInteractResult(part != null ? part : multipart, box, intersectionPoint);
+                            }
                         }
                     }
                 }
             }
         }
-        return closestEntity;
+        return closestResult;
     }
 
     /**
@@ -114,6 +113,21 @@ public class EntityManager {
         entitiesByClass.get(entity.getClass()).remove(entity);
         if (entity.shouldSync()) {
             trackedEntityMap.remove(entity.uniqueUUID);
+        }
+    }
+
+    /**
+     * Helper class for interact return data.
+     */
+    public static class EntityInteractResult {
+        public final AEntityE_Interactable<?> entity;
+        public final BoundingBox box;
+        public final Point3D point;
+
+        private EntityInteractResult(AEntityE_Interactable<?> entity, BoundingBox box, Point3D point) {
+            this.entity = entity;
+            this.box = box;
+            this.point = point;
         }
     }
 }

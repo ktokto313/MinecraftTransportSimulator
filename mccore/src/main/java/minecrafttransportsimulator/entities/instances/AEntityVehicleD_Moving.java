@@ -154,12 +154,12 @@ abstract class AEntityVehicleD_Moving extends AEntityVehicleC_Colliding {
                 coreBox.updateToEntity(this, null);
                 if (coreBox.updateCollidingBlocks(world, new Point3D(0D, -furthestDownPoint, 0D))) {
                     //New vehicle shouldn't have been spawned.  Bail out.
-                    remove();
                     placingPlayer.sendPacket(new PacketPlayerChatMessage(placingPlayer, JSONConfigLanguage.INTERACT_VEHICLE_NOSPACE));
                     //Need to add stack back as it will have been removed here.
                     if (!placingPlayer.isCreative()) {
                         placingPlayer.setHeldStack(getItem().getNewStack(save(InterfaceManager.coreInterface.getNewNBTWrapper())));
                     }
+                    remove();
                     return;
                 } else {
                     addToServerDeltas(null, null, 0);
@@ -414,23 +414,21 @@ abstract class AEntityVehicleD_Moving extends AEntityVehicleC_Colliding {
         double steeringAngle = getSteeringAngle() * 45;
         skidSteerActive = false;
         if (steeringAngle != 0) {
+            double furthestFrontPoint = 0;
+            double furthestRearPoint = 0;
+            
             double turningDistance = 0;
             //Check grounded ground devices for turn contributions.
             //Their distance from the center of the vehicle defines our turn arc.
             //Don't use fake ground devices here as it'll mess up math for vehicles.
-            boolean treadsOnly = true;
             for (PartGroundDevice groundDevice : groundDeviceCollective.groundedGroundDevices) {
-                if (groundDevice.turnsWithSteer && !groundDevice.isFake()) {
-                    turningDistance = Math.max(turningDistance, Math.abs(groundDevice.localOffset.z));
-                    if (treadsOnly && !groundDevice.definition.ground.isTread) {
-                        treadsOnly = false;
-                    }
+                if (groundDevice.wheelbasePoint.z > furthestFrontPoint) {
+                    furthestFrontPoint = groundDevice.wheelbasePoint.z;
                 }
-            }
-
-            //If we only have treads, double the distance.  This accounts for tracked-only vehicles.
-            if (treadsOnly) {
-                turningDistance *= 2;
+                if (groundDevice.wheelbasePoint.z < furthestRearPoint) {
+                    furthestRearPoint = groundDevice.wheelbasePoint.z;
+                }
+                turningDistance = furthestFrontPoint - furthestRearPoint;
             }
 
             //If we didn't find any ground devices to make us turn, check propellers in the water.

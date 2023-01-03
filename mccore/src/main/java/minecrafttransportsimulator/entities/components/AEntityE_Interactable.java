@@ -147,6 +147,7 @@ public abstract class AEntityE_Interactable<JSONDefinition extends AJSONInteract
     @DerivedValue
     public double damageAmount;
     public static final String DAMAGE_VARIABLE = "damage";
+    public boolean outOfHealth;
 
     /**
      * Internal variable to force collision box updates, even if we aren't normally a moveable entity.
@@ -294,9 +295,7 @@ public abstract class AEntityE_Interactable<JSONDefinition extends AJSONInteract
         //Update damage and locked value
         damageAmount = getVariable(DAMAGE_VARIABLE);
         locked = isVariableActive(LOCKED_VARIABLE);
-
-        //Reset collision override flag.
-        forceCollisionUpdateThisTick = false;
+        outOfHealth = damageAmount == definition.general.health && definition.general.health != 0;
 
         world.endProfiling();
     }
@@ -310,6 +309,8 @@ public abstract class AEntityE_Interactable<JSONDefinition extends AJSONInteract
     public double getRawVariableValue(String variable, float partialTicks) {
         if ("damage_percent".equals(variable)) {
             return damageAmount / definition.general.health;
+        } else if ("damage_totaled".equals(variable)) {
+            return outOfHealth ? 1 : 0;
         }
 
         //Not a towing variable, check others.
@@ -459,6 +460,9 @@ public abstract class AEntityE_Interactable<JSONDefinition extends AJSONInteract
                 }
                 world.endProfiling();
             }
+
+            //Reset collision override flag.
+            forceCollisionUpdateThisTick = false;
         }
     }
 
@@ -552,6 +556,7 @@ public abstract class AEntityE_Interactable<JSONDefinition extends AJSONInteract
             if (damageAmount > definition.general.health) {
                 double amountActuallyNeeded = damage.amount - (damageAmount - definition.general.health);
                 damageAmount = definition.general.health;
+                outOfHealth = definition.general.health != 0;
                 InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, DAMAGE_VARIABLE, amountActuallyNeeded));
             } else {
                 InterfaceManager.packetInterface.sendToAllClients(new PacketEntityVariableIncrement(this, DAMAGE_VARIABLE, damage.amount));
@@ -585,15 +590,8 @@ public abstract class AEntityE_Interactable<JSONDefinition extends AJSONInteract
                 if (instrument != null) {
                     JSONInstrumentDefinition packInstrument = definition.instruments.get(i);
 
-                    //Translate and rotate to standard position.
-                    //Note that instruments with rotation of Y=0 face backwards, which is opposite of normal rendering.
-                    //To compensate, we rotate them 180 here.
+                    //Set initial transform.
                     instrumentTransform.set(transform);
-                    instrumentTransform.applyTranslation(packInstrument.pos);
-                    if (packInstrument.rot != null) {
-                        instrumentTransform.applyRotation(packInstrument.rot);
-                    }
-                    instrumentTransform.applyRotation(INSTRUMENT_ROTATION_INVERSION);
 
                     //Do transforms if required and render if allowed.
                     AnimationSwitchbox switchbox = instrumentSlotSwitchboxes.get(packInstrument);
@@ -601,6 +599,16 @@ public abstract class AEntityE_Interactable<JSONDefinition extends AJSONInteract
                         if (switchbox != null) {
                             instrumentTransform.multiply(switchbox.netMatrix);
                         }
+
+                        //Now that animations have adjusted us, apply final transforms.
+                        //Note that instruments with rotation of Y=0 face backwards, which is opposite of normal rendering.
+                        //To compensate, we rotate them 180 here.
+                        instrumentTransform.applyTranslation(packInstrument.pos);
+                        if (packInstrument.rot != null) {
+                            instrumentTransform.applyRotation(packInstrument.rot);
+                        }
+                        instrumentTransform.applyRotation(INSTRUMENT_ROTATION_INVERSION);
+
                         //Instruments render with 1 unit being 1 pixel, not 1 block, so scale by 1/16.
                         instrumentTransform.applyScaling(1 / 16F, 1 / 16F, 1 / 16F);
                         RenderInstrument.drawInstrument(this, instrumentTransform, i, false, blendingEnabled, partialTicks);

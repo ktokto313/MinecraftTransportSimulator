@@ -381,28 +381,14 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
                 thrustForce.add(towingThrustForce);
             }
 
-            //Get forces.  Some forces are specific to JSON sections.
-            //First get gravity.
-            gravitationalForce = currentBallastVolume == 0 ? currentMass * (9.8 / 400) : 0;
-            if (!definition.motorized.isAircraft) {
-                gravitationalForce *= ConfigSystem.settings.general.gravityFactor.value;
-            }
-
             //Get the track angle.  This is used for control surfaces.
             trackAngle = -Math.toDegrees(Math.asin(verticalVector.dotProduct(normalizedVelocityVector, true)));
 
             //Set blimp-specific states before calculating forces.
             if (definition.motorized.isBlimp) {
-                //Blimps are turned with rudders, not ailerons.  This puts the keys at an odd location.  To compensate, 
-                //we set the rudder to the aileron if the aileron is greater or less than the rudder.  That way no matter 
-                //which key is pressed, they both activate the rudder for turning.
-                if ((aileronAngle < 0 && aileronAngle < rudderAngle) || (aileronAngle > 0 && aileronAngle > rudderAngle)) {
-                    rudderAngle = aileronAngle;
-                }
-
                 //If we have the brake pressed at a slow speed, stop the blimp.
                 //This is needed to prevent runaway blimps.
-                if (Math.abs(velocity) < 0.15 && (brake > 0 || parkingBrakeOn)) {
+                if (Math.hypot(motion.x, motion.z) < 0.15 && (brake > 0 || parkingBrakeOn)) {
                     motion.x = 0;
                     motion.z = 0;
                     thrustForce.set(0D, 0D, 0D);
@@ -496,7 +482,7 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
 
                 //If we are turning with the rudder, don't let us heel out of line easily.
                 //Rudder force should be minimal for blimps due to their moment of inertia.
-                if (rudderTorque * rudderAngle <= 0) {
+                if (rudderTorque * rudderAngle > 0) {
                     rudderTorque = 0;
                 }
             }
@@ -507,8 +493,8 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
                 elevatorTorque += 100;
             }
 
-            //If we are damaged, don't apply control surface and ballast forces.
-            if (damageAmount == definition.general.health) {
+            //If we are dead, don't apply control surface and ballast forces.
+            if (outOfHealth) {
                 wingForce = 0;
                 elevatorForce = 0;
                 aileronForce = 0;
@@ -517,6 +503,13 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
                 aileronTorque = 0;
                 rudderTorque = 0;
                 ballastForce = 0;
+                currentBallastVolume = 0;
+            }
+
+            //Finally, get gravity.
+            gravitationalForce = currentBallastVolume == 0 ? currentMass * (9.8 / 400) : 0;
+            if (!definition.motorized.isAircraft) {
+                gravitationalForce *= ConfigSystem.settings.general.gravityFactor.value;
             }
 
             //Add all forces to the main force matrix and apply them.
@@ -950,6 +943,8 @@ public class EntityVehicleF_Physics extends AEntityVehicleE_Powered {
                 return ((rotation.angles.z) / 10 + rotation.angles.y) / 0.15D * 25;
             case ("turn_indicator"):
                 return (rotation.angles.y) / 0.15F * 25F;
+            case ("pitch_indicator"):
+                return (rotation.angles.x) / 0.15F * 25F;
             case ("slip"):
                 return 75 * sideVector.dotProduct(normalizedVelocityVector, true);
             case ("gear_moving"):

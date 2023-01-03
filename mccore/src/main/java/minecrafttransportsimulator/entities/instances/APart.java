@@ -21,6 +21,9 @@ import minecrafttransportsimulator.mcinterface.IWrapperNBT;
 import minecrafttransportsimulator.mcinterface.IWrapperPlayer;
 import minecrafttransportsimulator.mcinterface.InterfaceManager;
 import minecrafttransportsimulator.packets.instances.PacketPlayerChatMessage;
+import minecrafttransportsimulator.packloading.PackResourceLoader;
+import minecrafttransportsimulator.packloading.PackResourceLoader.ResourceType;
+import minecrafttransportsimulator.systems.ConfigSystem;
 
 /**
  * This class is the base for all parts and should be extended for any entity-compatible parts.
@@ -105,13 +108,18 @@ public abstract class APart extends AEntityF_Multipart<JSONPart> {
         this.isSpare = placementDefinition.isSpare || (partOn != null && partOn.isSpare);
         this.isMirrored = placementDefinition.isMirrored || (partOn != null && partOn.isMirrored);
 
-        //Set initial position and rotation.  This ensures part doesn't "warp" the first tick.
+        //Set initial position, rotation, and scale.  This ensures part doesn't "warp" the first tick.
         //Note that this isn't exact, as we can't calculate the exact locals until after the first tick
         //when we initialize all of our animations.
         position.set(localOffset).add(entityOn.position);
         prevPosition.set(position);
         orientation.set(entityOn.orientation);
         prevOrientation.set(orientation);
+        scale.set(entityOn.scale);
+        if (placementDefinition.partScale != null) {
+            scale.multiply(placementDefinition.partScale);
+        }
+        prevScale.set(scale);
     }
 
     @Override
@@ -255,16 +263,27 @@ public abstract class APart extends AEntityF_Multipart<JSONPart> {
             return;
         }
 
-        //If we are holding a wrench, and the part has children, don't add the interaction boxes.  We can't wrench those parts.
-        //The only exceptions are parts that have permanent-default parts on them. or if they specifically don't block subpart removal.  These can be wrenched.
-        //Again, this only applies on clients for that client player.
-        if (world.isClient() && InterfaceManager.clientInterface.getClientPlayer().isHoldingItemType(ItemComponentType.WRENCH)) {
-            for (APart childPart : parts) {
-                if (!childPart.isPermanent && !childPart.placementDefinition.allowParentRemoval) {
-                    allInteractionBoxes.removeAll(interactionBoxes);
-                    return;
-                }
-            }
+        //If we are holding a screwdriver or wrench, run these checks to remove hitboxes if needed. This can only be done on the client.
+        if (world.isClient()) {
+	    	boolean isHoldingWrench = InterfaceManager.clientInterface.getClientPlayer().isHoldingItemType(ItemComponentType.WRENCH);
+	    	boolean isHoldingScrewdriver = InterfaceManager.clientInterface.getClientPlayer().isHoldingItemType(ItemComponentType.SCREWDRIVER);
+	
+	        if (isHoldingWrench || isHoldingScrewdriver) {
+	            //If we are holding a wrench and the part requires a screwdriver, remove interaction boxes so they don't get in the way and vice versa.
+	            if ((isHoldingWrench && definition.generic.mustBeRemovedByScrewdriver) || (isHoldingScrewdriver && !definition.generic.mustBeRemovedByScrewdriver)) {
+	                allInteractionBoxes.removeAll(interactionBoxes);
+	                return;
+	            }
+	            //If we are holding a wrench or screwdriver, and the part has children, don't add the interaction boxes.  We can't wrench those parts.
+	            //The only exceptions are parts that have permanent-default parts on them. or if they specifically don't block subpart removal.  These can be removed.
+	            //Again, this only applies on clients for that client player.
+	        	for (APart childPart : parts) {
+	                if (!childPart.isPermanent && !childPart.placementDefinition.allowParentRemoval) {
+	                    allInteractionBoxes.removeAll(interactionBoxes);
+	                    return;
+	                }
+	            }
+	        }
         }
     }
 
@@ -285,6 +304,23 @@ public abstract class APart extends AEntityF_Multipart<JSONPart> {
         } else {
             //Not a removable part, or is an actual attack.
             super.attack(damage);
+            if (outOfHealth && definition.generic.destroyable) {
+                if (ConfigSystem.settings.damage.explosions.value) {
+                    world.spawnExplosion(position, 1F, true);
+                } else {
+                    world.spawnExplosion(position, 0F, false);
+                }
+                destroy(damage.box);
+            }
+        }
+    }
+
+    @Override
+    public void setVariable(String variable, double value) {
+        if (variable.startsWith("parent_")) {
+            entityOn.setVariable(variable.substring("parent_".length()), value);
+        } else {
+            super.setVariable(variable, value);
         }
     }
 
@@ -308,6 +344,11 @@ public abstract class APart extends AEntityF_Multipart<JSONPart> {
     @Override
     public boolean shouldSavePosition() {
         return false;
+    }
+
+    @Override
+    public boolean canBeClicked() {
+        return entityOn.isVariableListTrue(placementDefinition.interactableVariables) && entityOn.canBeClicked();
     }
 
     /**
@@ -417,14 +458,6 @@ public abstract class APart extends AEntityF_Multipart<JSONPart> {
     }
 
     /**
-     * Returns true if this part can be clicked.  Normally true unless there are false linkedVariables.
-     * However, some parts (like seats) may choose to ignore these in specific cases.
-     */
-    public boolean canBeClicked() {
-        return entityOn.isVariableListTrue(placementDefinition.interactableVariables);
-    }
-
-    /**
      * This is called during part save/load calls.  Fakes parts are
      * added to entities, but they aren't saved with the NBT.  Rather,
      * they should be re-created in the constructor of the part that added
@@ -455,7 +488,17 @@ public abstract class APart extends AEntityF_Multipart<JSONPart> {
 
     @Override
     public String getTexture() {
-        return definition.generic.useVehicleTexture ? entityOn.getTexture() : super.getTexture();
+        if (definition.generic.useVehicleTexture) {
+            if (vehicleOn != null) {
+                return vehicleOn.getTexture();
+            } else if (definition.generic.benchTexture != null) {
+                return PackResourceLoader.getPackResource(definition, ResourceType.PNG, definition.generic.benchTexture);
+            } else {
+                return null;
+            }
+        } else {
+            return super.getTexture();
+        }
     }
 
     @Override
@@ -484,6 +527,8 @@ public abstract class APart extends AEntityF_Multipart<JSONPart> {
                 return isMirrored ? 1 : 0;
             case ("part_isspare"):
                 return isSpare ? 1 : 0;
+            case ("part_onvehicle"):
+                return vehicleOn != null ? 1 : 0;
         }
 
         //No variables, check super variables before doing generic forwarding.

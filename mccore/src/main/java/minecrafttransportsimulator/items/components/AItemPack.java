@@ -41,7 +41,11 @@ public abstract class AItemPack<JSONDefinition extends AJSONItem> extends AItemB
 
     @Override
     public void addTooltipLines(List<String> tooltipLines, IWrapperNBT data) {
-        Collections.addAll(tooltipLines, ConfigSystem.language.packs.get(definition.packID).get(getRegistrationName()).description.split("\n"));
+        //Don't add any tooltips if we are just an empty
+        String description = ConfigSystem.language.packs.get(definition.packID).get(getRegistrationName()).description;
+        if (description.length() > 0) {
+            Collections.addAll(tooltipLines, description.split("\n"));
+        }
     }
 
     @Override
@@ -68,11 +72,28 @@ public abstract class AItemPack<JSONDefinition extends AJSONItem> extends AItemB
      * Returns true if this item can be crafted by the passed-in bench definition.
      */
     public boolean isBenchValid(JSONCraftingBench craftingDefinition) {
-        boolean hasMaterials = !definition.general.materialLists.isEmpty();
-        if (!hasMaterials && this instanceof AItemSubTyped) {
-            hasMaterials = !((AItemSubTyped<?>) this).subDefinition.extraMaterialLists.isEmpty();
+        //Benches can only be valid if the item has materials to craft it with.
+        boolean hasMaterials = false;
+
+        //Make sure we have main materials to craft us with.
+        for (List<String> list : definition.general.materialLists) {
+            if (!list.isEmpty()) {
+                hasMaterials = true;
+                break;
+            }
         }
 
+        //No main materials, but we might have sub materials if we are sub-typed.
+        if (!hasMaterials && this instanceof AItemSubTyped) {
+            for (List<String> list : ((AItemSubTyped<?>) this).subDefinition.extraMaterialLists) {
+                if (!list.isEmpty()) {
+                    hasMaterials = true;
+                    break;
+                }
+            }
+        }
+
+        //If we have materials, do final bench checks.  Otherwise, we know we can't be crafted in any bench.
         if (hasMaterials) {
             if (craftingDefinition.items != null) {
                 return craftingDefinition.items.contains(definition.packID + ":" + definition.systemName);

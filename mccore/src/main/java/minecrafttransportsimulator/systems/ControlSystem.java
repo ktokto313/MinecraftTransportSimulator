@@ -1,10 +1,9 @@
 package minecrafttransportsimulator.systems;
 
-import minecrafttransportsimulator.baseclasses.BoundingBox;
+import minecrafttransportsimulator.baseclasses.EntityManager.EntityInteractResult;
 import minecrafttransportsimulator.baseclasses.Point3D;
 import minecrafttransportsimulator.entities.components.AEntityF_Multipart;
 import minecrafttransportsimulator.entities.instances.APart;
-import minecrafttransportsimulator.entities.instances.EntityPlacedPart;
 import minecrafttransportsimulator.entities.instances.EntityPlayerGun;
 import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
 import minecrafttransportsimulator.entities.instances.PartEngine;
@@ -43,8 +42,7 @@ public final class ControlSystem {
 
     private static boolean parkingBrakePressedLastCheck = false;
 
-    private static BoundingBox closestBox = null;
-    private static AEntityF_Multipart<?> closestEntity = null;
+    private static EntityInteractResult interactResult = null;
 
     /**
      * Static initializer for the IWrapper inputs, as we need to iterate through the enums to initialize them
@@ -101,50 +99,16 @@ public final class ControlSystem {
         if (clickingLeft || clickingRight) {
             Point3D startPosition = player.getPosition();
             startPosition.y += (player.getEyeHeight() + player.getSeatOffset()) * player.getVerticalScale();
-            Point3D endPosition = player.getLineOfSight(3.5);
-            endPosition.add(startPosition);
-            BoundingBox clickBounds = new BoundingBox(startPosition, endPosition);
+            Point3D endPosition = player.getLineOfSight(3.5).add(startPosition);
 
-            closestBox = null;
-            closestEntity = null;
-            for (EntityVehicleF_Physics vehicle : player.getWorld().getEntitiesOfType(EntityVehicleF_Physics.class)) {
-                if (vehicle.encompassingBox.intersects(clickBounds)) {
-                    //Could have hit this vehicle, check if and what we did via raytracing.
-                    for (BoundingBox box : vehicle.allInteractionBoxes) {
-                        if (box.intersects(clickBounds) && box.getIntersectionPoint(startPosition, endPosition) != null) {
-                            if (closestBox == null || startPosition.isFirstCloserThanSecond(box.globalCenter, closestBox.globalCenter)) {
-                                closestBox = box;
-                                closestEntity = vehicle.getPartWithBox(closestBox);
-                                if (closestEntity == null) {
-                                    closestEntity = vehicle;
-                                }
-                            }
-                        }
-                    }
-                }
+            interactResult = player.getWorld().getMultipartEntityIntersect(startPosition, endPosition);
+            if (interactResult != null) {
+                InterfaceManager.packetInterface.sendToServer(new PacketEntityInteract(interactResult.entity, player, interactResult.box, clickingLeft, clickingRight));
             }
-            for (EntityPlacedPart placer : player.getWorld().getEntitiesOfType(EntityPlacedPart.class)) {
-                if (placer.encompassingBox.intersects(clickBounds)) {
-                    //Could have hit this part, check if and what we did via raytracing.
-                    for (BoundingBox box : placer.allInteractionBoxes) {
-                        if (box.intersects(clickBounds) && box.getIntersectionPoint(startPosition, endPosition) != null) {
-                            if (closestBox == null || startPosition.isFirstCloserThanSecond(box.globalCenter, closestBox.globalCenter)) {
-                                closestBox = box;
-                                closestEntity = placer.getPartWithBox(closestBox);
-                                if (closestEntity == null) {
-                                    closestEntity = placer;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if (closestBox != null) {
-                InterfaceManager.packetInterface.sendToServer(new PacketEntityInteract(closestEntity, player, closestBox, clickingLeft, clickingRight));
-            }
-        } else if (closestBox != null) {
+        } else if (interactResult != null) {
             //Fire off un-click to entity last clicked.
-            InterfaceManager.packetInterface.sendToServer(new PacketEntityInteract(closestEntity, player, closestBox, false, false));
+            InterfaceManager.packetInterface.sendToServer(new PacketEntityInteract(interactResult.entity, player, interactResult.box, false, false));
+            interactResult = null;
         }
     }
 
@@ -351,16 +315,22 @@ public final class ControlSystem {
             }
         }
 
-        //Check yaw.
-        controlControlSurface(aircraft, ControlsJoystick.AIRCRAFT_YAW, ControlsKeyboard.AIRCRAFT_YAW_R, ControlsKeyboard.AIRCRAFT_YAW_L, ConfigSystem.client.controlSettings.steeringControlRate.value, EntityVehicleF_Physics.MAX_RUDDER_ANGLE, EntityVehicleF_Physics.RUDDER_INPUT_VARIABLE, aircraft.rudderInput, EntityVehicleF_Physics.RUDDER_DAMPEN_RATE);
-        controlControlTrim(aircraft, ControlsJoystick.AIRCRAFT_TRIM_YAW_R, ControlsJoystick.AIRCRAFT_TRIM_YAW_L, EntityVehicleF_Physics.MAX_RUDDER_TRIM, EntityVehicleF_Physics.RUDDER_TRIM_VARIABLE);
+        //Check yaw.  Blimps don't use rudder keys.
+        if (!aircraft.definition.motorized.isBlimp) {
+            controlControlSurface(aircraft, ControlsJoystick.AIRCRAFT_YAW, ControlsKeyboard.AIRCRAFT_YAW_R, ControlsKeyboard.AIRCRAFT_YAW_L, ConfigSystem.client.controlSettings.steeringControlRate.value, EntityVehicleF_Physics.MAX_RUDDER_ANGLE, EntityVehicleF_Physics.RUDDER_INPUT_VARIABLE, aircraft.rudderInput, EntityVehicleF_Physics.RUDDER_DAMPEN_RATE);
+            controlControlTrim(aircraft, ControlsJoystick.AIRCRAFT_TRIM_YAW_R, ControlsJoystick.AIRCRAFT_TRIM_YAW_L, EntityVehicleF_Physics.MAX_RUDDER_TRIM, EntityVehicleF_Physics.RUDDER_TRIM_VARIABLE);
+        }
 
         //Check pitch.
         controlControlSurface(aircraft, ControlsJoystick.AIRCRAFT_PITCH, ControlsKeyboard.AIRCRAFT_PITCH_U, ControlsKeyboard.AIRCRAFT_PITCH_D, ConfigSystem.client.controlSettings.flightControlRate.value, EntityVehicleF_Physics.MAX_ELEVATOR_ANGLE, EntityVehicleF_Physics.ELEVATOR_INPUT_VARIABLE, aircraft.elevatorInput, EntityVehicleF_Physics.ELEVATOR_DAMPEN_RATE);
         controlControlTrim(aircraft, ControlsJoystick.AIRCRAFT_TRIM_PITCH_U, ControlsJoystick.AIRCRAFT_TRIM_PITCH_D, EntityVehicleF_Physics.MAX_ELEVATOR_TRIM, EntityVehicleF_Physics.ELEVATOR_TRIM_VARIABLE);
 
-        //Check roll.
-        controlControlSurface(aircraft, ControlsJoystick.AIRCRAFT_ROLL, ControlsKeyboard.AIRCRAFT_ROLL_R, ControlsKeyboard.AIRCRAFT_ROLL_L, ConfigSystem.client.controlSettings.flightControlRate.value, EntityVehicleF_Physics.MAX_AILERON_ANGLE, EntityVehicleF_Physics.AILERON_INPUT_VARIABLE, aircraft.aileronInput, EntityVehicleF_Physics.AILERON_DAMPEN_RATE);
+        //Check roll.  Blimps use roll for rudder for steering.
+        if (aircraft.definition.motorized.isBlimp) {
+            controlControlSurface(aircraft, ControlsJoystick.AIRCRAFT_ROLL, ControlsKeyboard.AIRCRAFT_ROLL_R, ControlsKeyboard.AIRCRAFT_ROLL_L, ConfigSystem.client.controlSettings.steeringControlRate.value, EntityVehicleF_Physics.MAX_RUDDER_ANGLE, EntityVehicleF_Physics.RUDDER_INPUT_VARIABLE, aircraft.rudderInput, EntityVehicleF_Physics.RUDDER_DAMPEN_RATE);
+        } else {
+            controlControlSurface(aircraft, ControlsJoystick.AIRCRAFT_ROLL, ControlsKeyboard.AIRCRAFT_ROLL_R, ControlsKeyboard.AIRCRAFT_ROLL_L, ConfigSystem.client.controlSettings.flightControlRate.value, EntityVehicleF_Physics.MAX_AILERON_ANGLE, EntityVehicleF_Physics.AILERON_INPUT_VARIABLE, aircraft.aileronInput, EntityVehicleF_Physics.AILERON_DAMPEN_RATE);
+        }
         controlControlTrim(aircraft, ControlsJoystick.AIRCRAFT_TRIM_ROLL_R, ControlsJoystick.AIRCRAFT_TRIM_ROLL_L, EntityVehicleF_Physics.MAX_AILERON_TRIM, EntityVehicleF_Physics.AILERON_TRIM_VARIABLE);
 
         //Check to see if we request a different auto-level state.

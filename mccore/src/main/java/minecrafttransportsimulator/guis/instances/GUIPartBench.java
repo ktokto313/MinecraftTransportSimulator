@@ -122,6 +122,7 @@ public class GUIPartBench extends AGUIBase {
             @Override
             public void onClicked(boolean leftSide) {
                 currentPack = prevPack;
+                viewingRepair = false;
                 currentItem = null;
                 updateNames();
             }
@@ -130,6 +131,7 @@ public class GUIPartBench extends AGUIBase {
             @Override
             public void onClicked(boolean leftSide) {
                 currentPack = nextPack;
+                viewingRepair = false;
                 currentItem = null;
                 updateNames();
             }
@@ -142,6 +144,7 @@ public class GUIPartBench extends AGUIBase {
             @Override
             public void onClicked(boolean leftSide) {
                 currentItem = prevItem;
+                viewingRepair = false;
                 updateNames();
             }
         });
@@ -149,6 +152,7 @@ public class GUIPartBench extends AGUIBase {
             @Override
             public void onClicked(boolean leftSide) {
                 currentItem = nextItem;
+                viewingRepair = false;
                 updateNames();
             }
         });
@@ -258,7 +262,7 @@ public class GUIPartBench extends AGUIBase {
         nextColorButton.visible = currentItem instanceof AItemSubTyped;
         nextColorButton.enabled = nextSubItem != null;
 
-        //Enable repair recipe button if we have multiple indexes.
+        //Enable next recipe button if we have multiple valid recipes.
         nextRecipeButton.enabled = currentItem != null && (viewingRepair ? currentItem.definition.general.repairMaterialLists.size() > 1 : currentItem.definition.general.materialLists.size() > 1);
 
         vehicleInfoButton.visible = currentItem instanceof ItemVehicle && !displayVehicleInfo;

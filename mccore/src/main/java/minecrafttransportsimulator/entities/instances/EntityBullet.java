@@ -1,5 +1,6 @@
 package minecrafttransportsimulator.entities.instances;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeMap;
 
@@ -9,6 +10,7 @@ import minecrafttransportsimulator.baseclasses.Point3D;
 import minecrafttransportsimulator.baseclasses.RotationMatrix;
 import minecrafttransportsimulator.entities.components.AEntityD_Definable;
 import minecrafttransportsimulator.entities.components.AEntityE_Interactable;
+import minecrafttransportsimulator.entities.components.AEntityF_Multipart;
 import minecrafttransportsimulator.jsondefs.JSONBullet;
 import minecrafttransportsimulator.jsondefs.JSONBullet.BulletType;
 import minecrafttransportsimulator.jsondefs.JSONConfigLanguage;
@@ -40,16 +42,22 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
     public final double initialVelocity;
     private final double velocityToAddEachTick;
     private final Point3D motionToAddEachTick;
+    private final int despawnTime;
+    private final BoundingBox proxBounds;
 
     //States
     private int impactDesapawnTimer = -1;
     private Point3D targetPosition;
     public double targetDistance;
+    private double distanceTraveled;
     private double armorPenetrated;
     private Point3D targetVector;
     private PartEngine engineTargeted;
     private IWrapperEntity externalEntityTargeted;
     private HitType lastHit;
+    private Point3D relativeGunPos;
+    private Point3D prevRelativeGunPos;
+    private Point3D blockToBreakPos;
 
     /**
      * Generic constructor for no target.
@@ -57,6 +65,7 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
     public EntityBullet(Point3D position, Point3D motion, RotationMatrix orientation, PartGun gun) {
         super(gun.world, position, motion, ZERO_FOR_CONSTRUCTOR, gun.loadedBullet);
         this.gun = gun;
+        gun.currentBullet = this;
         this.isBomb = gun.definition.gun.muzzleVelocity == 0;
         this.boundingBox.widthRadius = definition.bullet.diameter / 1000D / 2D;
         this.boundingBox.heightRadius = definition.bullet.diameter / 1000D / 2D;
@@ -69,6 +78,8 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
             velocityToAddEachTick = 0;
             motionToAddEachTick = null;
         }
+        this.despawnTime = definition.bullet.despawnTime != 0 ? definition.bullet.despawnTime : 200;
+        this.proxBounds = definition.bullet.proximityFuze != 0 ? new BoundingBox(position.copy(), definition.bullet.proximityFuze) : null;
         this.orientation.set(orientation);
         prevOrientation.set(orientation);
     }
@@ -105,10 +116,18 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
     @Override
     public void update() {
         super.update();
+        //Update distance traveled.
+        if (ticksExisted > 1) {
+            distanceTraveled += velocity;
+        }
+
         //Check if we impacted.  If so, don't process anything and just stay in place.
         if (impactDesapawnTimer >= 0) {
             if (impactDesapawnTimer-- == 0) {
                 remove();
+                if (blockToBreakPos != null) {
+                    world.destroyBlock(blockToBreakPos, true);
+                }
             }
             return;
         }
@@ -121,8 +140,8 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
             motion.y -= gun.definition.gun.gravitationalVelocity;
 
             //Check to make sure we haven't gone too many ticks.
-            if (ticksExisted > definition.bullet.burnTime + 200) {
-                displayDebugMessage("TIEMOUT");
+            if (ticksExisted > definition.bullet.burnTime + despawnTime) {
+                displayDebugMessage("TIMEOUT");
                 remove();
                 return;
             }
@@ -265,6 +284,7 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
                         } else {
                             //Need to re-create damage object to reference this hitbox.
                             damage = new Damage(damage.amount, hitBox, gun, null, null);
+                            damage.setBullet(getItem());
 
                             //Now check which damage we need to apply.
                             if (hitBox.groupDef != null) {
@@ -293,6 +313,9 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
                                 displayDebugMessage("HIT PART FOR DAMAGE: " + (int) damage.amount + " DAMAGE NOW AT " + (int) hitPart.damageAmount);
                                 if (hitPart.definition.generic.forwardsDamage || hitPart instanceof PartEngine) {
                                     if (!world.isClient()) {
+                                        //Need to re-create damage object to use box on vehicle.  Otherwise, we'll attack the part.
+                                        damage = new Damage(damage.amount, null, gun, null, null);
+                                        damage.setBullet(getItem());
                                         hitVehicle.attack(damage);
                                     }
                                     displayDebugMessage("FORWARDING DAMAGE TO VEHICLE.  CURRENT DAMAGE IS: " + (int) hitVehicle.damageAmount);
@@ -316,7 +339,8 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
                 } else {
                     float hardnessHit = world.getBlockHardness(hitResult.position);
                     if (ConfigSystem.settings.general.blockBreakage.value && hardnessHit > 0 && hardnessHit <= (Math.random() * 0.3F + 0.3F * definition.bullet.diameter / 20F)) {
-                        world.destroyBlock(hitResult.position, true);
+                        //Need to break the block after we die to allow particles to get the texture.
+                        blockToBreakPos = hitResult.position;
                     } else if (definition.bullet.types.contains(BulletType.INCENDIARY)) {
                         //Couldn't break block, but we might be able to set it on fire.
                         world.setToFire(hitResult);
@@ -334,33 +358,78 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
         }
 
         //Check proximity fuze against our target and blocks.
-        if (definition.bullet.proximityFuze != 0) {
-            Point3D targetToHit;
+        if (definition.bullet.proximityFuze != 0 && distanceTraveled > definition.bullet.proximityFuze * 3) {
+            Point3D targetToHit = null;
             if (targetPosition != null) {
-                targetToHit = targetPosition;
+                //Have an entity target, check if we got close enough to them.
+                if (position.distanceTo(targetPosition) < definition.bullet.proximityFuze + velocity) {
+                    targetToHit = targetPosition;
+                }
             } else {
+                //No entity target, first check blocks.
                 hitResult = world.getBlockHit(position, motion.copy().normalize().scale(definition.bullet.proximityFuze + velocity));
-                targetToHit = hitResult != null ? hitResult.position : null;
+                if (hitResult != null) {
+                    targetToHit = hitResult.position;
+                    lastHit = HitType.BLOCK;
+                    displayDebugMessage("PROX FUZE HIT BLOCK");
+                } else {
+                    //Need to get an entity target.
+                    //Check at deltas of the prox fuze to see if we hit one along the path.
+                    Point3D stepDelta = motion.copy().normalize().scale(definition.bullet.proximityFuze);
+                    int maxSteps = (int) Math.floor(velocity / definition.bullet.proximityFuze);
+                    proxBounds.globalCenter.set(position);
+                    for (int step = 0; step < maxSteps; ++step) {
+                        List<AEntityF_Multipart<?>> multiparts = new ArrayList<>();
+                        multiparts.addAll(world.getEntitiesOfType(EntityVehicleF_Physics.class));
+                        multiparts.addAll(world.getEntitiesOfType(EntityPlacedPart.class));
+                        for (AEntityF_Multipart<?> multipart : multiparts) {
+                            if (multipart.encompassingBox.intersects(proxBounds)) {
+                                //Could have hit this multipart, check all boxes.
+                                for (BoundingBox box : multipart.allInteractionBoxes) {
+                                    if (box.globalCenter.isDistanceToCloserThan(proxBounds.globalCenter, definition.bullet.proximityFuze)) {
+                                        targetToHit = proxBounds.globalCenter.copy();
+                                        lastHit = HitType.ENTITY;
+                                        displayDebugMessage("PROX FUZE HIT VEHICLE");
+                                        break;
+                                    }
+                                }
+                            }
+                            if (targetToHit != null) {
+                                break;
+                            }
+                        }
+
+                        //If we didn't hit a vehicle, try entities.
+                        if (targetToHit == null) {
+                            for (IWrapperEntity entity : world.getEntitiesWithin(proxBounds)) {
+                                if (entity.getPosition().isDistanceToCloserThan(proxBounds.globalCenter, definition.bullet.proximityFuze)) {
+                                    targetToHit = proxBounds.globalCenter.copy();
+                                    lastHit = HitType.ENTITY;
+                                    displayDebugMessage("PROX FUZE HIT ENTITY");
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (targetToHit != null) {
+                            break;
+                        } else {
+                            //Add the step delta for the next check.
+                            proxBounds.globalCenter.add(stepDelta);
+                        }
+                    }
+                }
             }
-            if (targetToHit != null) {
-                double distanceToTarget = position.distanceTo(targetToHit);
-                if (distanceToTarget < definition.bullet.proximityFuze + velocity) {
+            if (lastHit != null) {
+                if (targetToHit != null) {
+                    double distanceToTarget = position.distanceTo(targetToHit);
                     if (distanceToTarget > definition.bullet.proximityFuze) {
+                        //We will hit this target this tick, but we need to move right to the prox distance before detonating.
                         position.interpolate(targetToHit, (distanceToTarget - definition.bullet.proximityFuze) / definition.bullet.proximityFuze);
                     }
-                    if (externalEntityTargeted != null) {
-                        lastHit = HitType.ENTITY;
-                        displayDebugMessage("PROX FUZE HIT ENTITY");
-                    } else if (engineTargeted != null) {
-                        lastHit = HitType.PART;
-                        displayDebugMessage("PROX FUZE HIT ENGINE");
-                    } else {
-                        lastHit = HitType.BLOCK;
-                        displayDebugMessage("PROX FUZE HIT BLOCK");
-                    }
-                    startDespawn();
-                    return;
                 }
+                startDespawn();
+                return;
             }
         }
 
@@ -381,11 +450,34 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
         if (!isBomb && (definition.bullet.accelerationDelay == 0 || ticksExisted > definition.bullet.accelerationDelay)) {
             orientation.setToVector(motion, true);
         }
+
+        //Set gun pos if the gun has requested it by creating it.
+        if (relativeGunPos != null) {
+            prevRelativeGunPos.set(relativeGunPos);
+            relativeGunPos.set(position).subtract(gun.position).reOrigin(gun.orientation);
+        }
     }
 
     @Override
     public boolean requiresDeltaUpdates() {
         return true;
+    }
+
+    public double getRelativePos(int axisIndex, float partialTicks) {
+        if (relativeGunPos == null) {
+            relativeGunPos = position.copy().subtract(gun.position).reOrigin(gun.orientation);
+            prevRelativeGunPos = relativeGunPos.copy();
+        }
+        switch (axisIndex) {
+            case (1):
+                return partialTicks != 0 ? prevRelativeGunPos.x + (relativeGunPos.x - prevRelativeGunPos.x) * partialTicks : relativeGunPos.x;
+            case (2):
+                return partialTicks != 0 ? prevRelativeGunPos.y + (relativeGunPos.y - prevRelativeGunPos.y) * partialTicks : relativeGunPos.y;
+            case (3):
+                return partialTicks != 0 ? prevRelativeGunPos.z + (relativeGunPos.z - prevRelativeGunPos.z) * partialTicks : relativeGunPos.z;
+            default:
+                throw new IllegalArgumentException("There are only three axis in the world you idiot!");
+        }
     }
 
     private void startDespawn() {
@@ -395,6 +487,7 @@ public class EntityBullet extends AEntityD_Definable<JSONBullet> {
             world.spawnExplosion(position, blastSize, definition.bullet.types.contains(BulletType.INCENDIARY));
         }
         impactDesapawnTimer = definition.bullet.impactDespawnTime;
+        gun.currentBullet = null;
     }
 
     private void displayDebugMessage(String message) {

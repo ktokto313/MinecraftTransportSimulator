@@ -6,12 +6,12 @@ import java.util.UUID;
 
 import minecrafttransportsimulator.baseclasses.BoundingBox;
 import minecrafttransportsimulator.baseclasses.Point3D;
+import minecrafttransportsimulator.entities.instances.AEntityVehicleE_Powered.FuelTankResult;
 import minecrafttransportsimulator.entities.instances.EntityInventoryContainer;
 import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
 import minecrafttransportsimulator.jsondefs.JSONConfigLanguage;
 import minecrafttransportsimulator.jsondefs.JSONItem.ItemComponentType;
 import minecrafttransportsimulator.mcinterface.AWrapperWorld;
-import minecrafttransportsimulator.mcinterface.IWrapperEntity;
 import minecrafttransportsimulator.mcinterface.IWrapperNBT;
 import minecrafttransportsimulator.mcinterface.IWrapperPlayer;
 import minecrafttransportsimulator.mcinterface.InterfaceManager;
@@ -62,10 +62,8 @@ public abstract class ATileEntityFuelPump extends TileEntityDecor {
             if (!connectedVehicle.position.isDistanceToCloserThan(position, 15)) {
                 setConnection(null);
                 InterfaceManager.packetInterface.sendToAllClients(new PacketTileEntityFuelPumpConnection(this));
-                for (IWrapperEntity entity : world.getEntitiesWithin(new BoundingBox(position, 25, 25, 25))) {
-                    if (entity instanceof IWrapperPlayer) {
-                        ((IWrapperPlayer) entity).sendPacket(new PacketPlayerChatMessage((IWrapperPlayer) entity, JSONConfigLanguage.INTERACT_FUELPUMP_TOOFAR));
-                    }
+                for (IWrapperPlayer player : world.getPlayersWithin(new BoundingBox(position, 25, 25, 25))) {
+                    player.sendPacket(new PacketPlayerChatMessage(player, JSONConfigLanguage.INTERACT_FUELPUMP_TOOFAR));
                 }
                 return;
             }
@@ -74,10 +72,8 @@ public abstract class ATileEntityFuelPump extends TileEntityDecor {
             if (connectedVehicle.fuelTank.getFluidLevel() == connectedVehicle.fuelTank.getMaxLevel()) {
                 setConnection(null);
                 InterfaceManager.packetInterface.sendToAllClients(new PacketTileEntityFuelPumpConnection(this));
-                for (IWrapperEntity entity : world.getEntitiesWithin(new BoundingBox(position, 16, 16, 16))) {
-                    if (entity instanceof IWrapperPlayer) {
-                        ((IWrapperPlayer) entity).sendPacket(new PacketPlayerChatMessage((IWrapperPlayer) entity, JSONConfigLanguage.INTERACT_FUELPUMP_COMPLETE));
-                    }
+                for (IWrapperPlayer player : world.getPlayersWithin(new BoundingBox(position, 16, 16, 16))) {
+                    player.sendPacket(new PacketPlayerChatMessage(player, JSONConfigLanguage.INTERACT_FUELPUMP_COMPLETE));
                 }
             }
         }
@@ -149,7 +145,7 @@ public abstract class ATileEntityFuelPump extends TileEntityDecor {
         connectedVehicle = newVehicle;
     }
 
-    protected abstract PumpResult checkPump(EntityVehicleF_Physics vehicle);
+    protected abstract FuelTankResult checkPump(EntityVehicleF_Physics vehicle);
 
     @Override
     public IWrapperNBT save(IWrapperNBT data) {
@@ -163,11 +159,5 @@ public abstract class ATileEntityFuelPump extends TileEntityDecor {
             data.setUUID("placingPlayerID", placingPlayerID);
         }
         return data;
-    }
-
-    protected enum PumpResult {
-        VALID,
-        INVALID,
-        MISMATCH;
     }
 }

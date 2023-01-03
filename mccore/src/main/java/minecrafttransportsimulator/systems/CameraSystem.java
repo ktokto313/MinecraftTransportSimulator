@@ -3,14 +3,14 @@ package minecrafttransportsimulator.systems;
 import minecrafttransportsimulator.baseclasses.AnimationSwitchbox;
 import minecrafttransportsimulator.baseclasses.Point3D;
 import minecrafttransportsimulator.baseclasses.RotationMatrix;
-import minecrafttransportsimulator.baseclasses.TransformationMatrix;
 import minecrafttransportsimulator.entities.components.AEntityB_Existing;
 import minecrafttransportsimulator.entities.components.AEntityD_Definable;
 import minecrafttransportsimulator.entities.instances.APart;
 import minecrafttransportsimulator.entities.instances.EntityPlayerGun;
-import minecrafttransportsimulator.entities.instances.EntityVehicleF_Physics;
 import minecrafttransportsimulator.entities.instances.PartSeat;
 import minecrafttransportsimulator.jsondefs.JSONCameraObject;
+import minecrafttransportsimulator.jsondefs.JSONPotionEffect;
+import minecrafttransportsimulator.jsondefs.JSONPotionEffect.PotionDefaults;
 import minecrafttransportsimulator.mcinterface.IWrapperPlayer;
 import minecrafttransportsimulator.mcinterface.InterfaceManager;
 
@@ -22,16 +22,25 @@ import minecrafttransportsimulator.mcinterface.InterfaceManager;
  * @author don_bruce
  */
 public class CameraSystem {
-    private static int zoomLevel;
+    public static int zoomLevel;
     private static boolean enableCustomCameras;
     public static boolean runningCustomCameras;
+    private static boolean nightVisionEnabled;
     private static int customCameraIndex;
     private static int customCamerasChecked;
     private static float currentFOV;
+    private static float currentMouseSensitivity;
     public static String customCameraOverlay;
 
     private static final Point3D cameraOffset = new Point3D();
     private static final RotationMatrix riderOrientation = new RotationMatrix();
+
+    private static final JSONPotionEffect NIGHT_VISION_CAMERA_POTION = new JSONPotionEffect();
+
+    static {
+        NIGHT_VISION_CAMERA_POTION.duration = 300;
+        NIGHT_VISION_CAMERA_POTION.name = PotionDefaults.NIGHT_VISION.name().toLowerCase();
+    }
 
     /**
      * Adjusts the camera zoom, zooming in or out depending on the flag.
@@ -55,25 +64,34 @@ public class CameraSystem {
      * transforms for the camera, return true.  If we only offset the camera and want to keep its
      * frame of reference and use local transformations rather than global, return false.
      */
-    public static boolean adjustCamera(IWrapperPlayer player, Point3D cameraAdjustedPosition, TransformationMatrix cameraOrientation, float partialTicks) {
+    public static boolean adjustCamera(IWrapperPlayer player, Point3D cameraAdjustedPosition, RotationMatrix cameraRotation, float partialTicks) {
         //Get variables.
         AEntityB_Existing ridingEntity = player.getEntityRiding();
         PartSeat sittingSeat = ridingEntity instanceof PartSeat ? (PartSeat) ridingEntity : null;
-        EntityVehicleF_Physics ridingVehicle = sittingSeat != null ? sittingSeat.vehicleOn : null;
         EntityPlayerGun playerGunEntity = EntityPlayerGun.playerClientGuns.get(player.getID());
 
-        //Reset FOV and overlay.
-        if (!enableCustomCameras && currentFOV != 0) {
-            InterfaceManager.clientInterface.setFOV(currentFOV);
-            currentFOV = 0;
+        //Reset FOV, sensitivity, overlay, and effect.
+        if (!enableCustomCameras) {
+            if (currentFOV != 0) {
+                InterfaceManager.clientInterface.setFOV(currentFOV);
+                currentFOV = 0;
+            }
+            if (currentMouseSensitivity != 0) {
+                InterfaceManager.clientInterface.setMouseSensitivity(currentMouseSensitivity);
+                currentMouseSensitivity = 0;
+            }
         }
         customCameraOverlay = null;
+        if (nightVisionEnabled) {
+            player.removePotionEffect(NIGHT_VISION_CAMERA_POTION);
+            nightVisionEnabled = false;
+        }
         //Do camera operations.
         if (InterfaceManager.clientInterface.inFirstPerson()) {
             //Force custom cameras for some states.
-            //If we are sneaking and holding a gun, enable custom cameras.
+            //If we are sneaking and holding a gun, or it has forced cameras, enable custom cameras.
             if (playerGunEntity != null && playerGunEntity.activeGun != null && sittingSeat == null) {
-                enableCustomCameras = playerGunEntity.activeGun.isHandHeldGunAimed;
+                enableCustomCameras = playerGunEntity.activeGun.isHandHeldGunAimed || playerGunEntity.activeGun.definition.gun.forceHandheldCameras;
                 customCameraIndex = 0;
             }
 
@@ -93,14 +111,14 @@ public class CameraSystem {
                 AEntityD_Definable<?> cameraProvider = null;
                 AnimationSwitchbox switchbox = null;
 
-                if (ridingVehicle != null) {
-                    camera = checkProviderForCameras(ridingVehicle, partialTicks);
+                if (sittingSeat != null) {
+                    camera = checkProviderForCameras(sittingSeat.masterEntity, partialTicks);
                     if (camera != null) {
-                        cameraProvider = ridingVehicle;
-                        switchbox = ridingVehicle.cameraSwitchboxes.get(camera);
+                        cameraProvider = sittingSeat.masterEntity;
+                        switchbox = sittingSeat.masterEntity.cameraSwitchboxes.get(camera);
                     }
                     if (camera == null) {
-                        for (APart part : ridingVehicle.allParts) {
+                        for (APart part : sittingSeat.masterEntity.allParts) {
                             camera = checkProviderForCameras(part, partialTicks);
                             if (camera != null) {
                                 cameraProvider = part;
@@ -130,6 +148,14 @@ public class CameraSystem {
                         InterfaceManager.clientInterface.setFOV(camera.fovOverride);
                     }
 
+                    //If the camera has a mouse sensitivity override, apply it.
+                    if (camera.mouseSensitivityOverride != 0) {
+                        if (currentMouseSensitivity == 0) {
+                            currentMouseSensitivity = InterfaceManager.clientInterface.getMouseSensitivity();
+                        }
+                        InterfaceManager.clientInterface.setMouseSensitivity(camera.mouseSensitivityOverride);
+                    }
+
                     //First set the position of the camera to the defined position.
                     cameraAdjustedPosition.set(camera.pos);
 
@@ -141,18 +167,18 @@ public class CameraSystem {
 
                     //Get the rotational component of the operation.
                     //First, get the orientation of the entity we are on.
-                    cameraProvider.getInterpolatedOrientation(cameraOrientation, partialTicks);
+                    cameraProvider.getInterpolatedOrientation(cameraRotation, partialTicks);
 
-                    //We need to transform the camera position by our orientation here.
+                    //We need to rotate the camera position by our orientation here.
                     //This puts the position into global orientation rather than animation-local.
-                    cameraAdjustedPosition.transform(cameraOrientation);
+                    cameraAdjustedPosition.rotate(cameraRotation);
 
                     //Now add the rotation from the animation, plus the definition rotation, if we have it.
                     if (switchbox != null) {
-                        cameraOrientation.applyRotation(switchbox.rotation);
+                        cameraRotation.multiply(switchbox.rotation);
                     }
                     if (camera.rot != null) {
-                        cameraOrientation.applyRotation(camera.rot);
+                        cameraRotation.multiply(camera.rot);
                     }
 
                     //Rotational portion is good.  Finally, get the offset from the player to the provider origin.
@@ -161,6 +187,13 @@ public class CameraSystem {
                     cameraOffset.set(cameraProvider.prevPosition).interpolate(cameraProvider.position, partialTicks).subtract(player.getRenderedPosition(partialTicks));
                     cameraOffset.y -= player.getEyeHeight();
                     cameraAdjustedPosition.add(cameraOffset);
+
+                    //Also check night vision.
+                    if (camera.nightVision) {
+                        player.addPotionEffect(NIGHT_VISION_CAMERA_POTION);
+                        nightVisionEnabled = true;
+                    }
+
                     return true;
                 }
 
@@ -168,13 +201,13 @@ public class CameraSystem {
                 enableCustomCameras = false;
                 runningCustomCameras = false;
             } else if (sittingSeat != null) {
-                sittingSeat.getInterpolatedOrientation(cameraOrientation, partialTicks);
+                sittingSeat.getInterpolatedOrientation(cameraRotation, partialTicks);
                 double eyeHeight = player.getEyeHeight();
                 double seatOffset = player.getSeatOffset();
                 double verticalScale = player.getVerticalScale();
-                cameraAdjustedPosition.set(0, (eyeHeight + seatOffset) * verticalScale, 0).rotate(cameraOrientation).add(0, -eyeHeight, 0);
+                cameraAdjustedPosition.set(0, (eyeHeight + seatOffset) * verticalScale, 0).rotate(cameraRotation).add(0, -eyeHeight, 0);
                 sittingSeat.getRiderInterpolatedOrientation(riderOrientation, partialTicks);
-                cameraOrientation.applyRotation(riderOrientation);
+                cameraRotation.multiply(riderOrientation);
                 return true;
             } else {
                 //No custom camera, and no seat camera modifications.  Standard world view.
@@ -198,15 +231,14 @@ public class CameraSystem {
                 customCameraIndex = 0;
 
                 //Add the zoom offset for third-person view.  This takes hold if we don't have any custom cameras.
-                sittingSeat.getInterpolatedOrientation(cameraOrientation, partialTicks);
+                sittingSeat.getInterpolatedOrientation(cameraRotation, partialTicks);
                 double eyeHeight = player.getEyeHeight();
                 double seatOffset = player.getSeatOffset();
                 double verticalScale = player.getVerticalScale();
-                cameraAdjustedPosition.set(0, (eyeHeight + seatOffset) * verticalScale, 0).rotate(cameraOrientation).add(0, -eyeHeight, 0);
-                cameraOffset.set(0, 0, -zoomLevel);
-                cameraOrientation.setTranslation(cameraOffset);
+                cameraAdjustedPosition.set(0, (eyeHeight + seatOffset) * verticalScale, 0).rotate(cameraRotation).add(0, -eyeHeight, 0);
                 sittingSeat.getRiderInterpolatedOrientation(riderOrientation, partialTicks);
-                cameraOrientation.applyRotation(riderOrientation);
+                cameraRotation.multiply(riderOrientation);
+                cameraAdjustedPosition.add(cameraOffset.set(0, 0, -zoomLevel).rotate(cameraRotation));
                 return true;
             }
         } else {
@@ -215,10 +247,10 @@ public class CameraSystem {
             //If we do have custom cameras, use them instead.
             if (sittingSeat != null) {
                 if (InterfaceManager.clientInterface.changedCameraState()) {
-                    if (ridingVehicle.definition.rendering.cameraObjects != null) {
+                    if (sittingSeat.masterEntity.definition.rendering != null && sittingSeat.masterEntity.definition.rendering.cameraObjects != null) {
                         InterfaceManager.clientInterface.toggleFirstPerson();
                     } else {
-                        for (APart part : ridingVehicle.allParts) {
+                        for (APart part : sittingSeat.masterEntity.allParts) {
                             if (part.definition.rendering != null && part.definition.rendering.cameraObjects != null) {
                                 InterfaceManager.clientInterface.toggleFirstPerson();
                                 break;
@@ -228,15 +260,14 @@ public class CameraSystem {
                 }
 
                 //Add the zoom offset for third-person view.
-                sittingSeat.getInterpolatedOrientation(cameraOrientation, partialTicks);
+                sittingSeat.getInterpolatedOrientation(cameraRotation, partialTicks);
                 double eyeHeight = player.getEyeHeight();
                 double seatOffset = player.getSeatOffset();
                 double verticalScale = player.getVerticalScale();
-                cameraAdjustedPosition.set(0, (eyeHeight + seatOffset) * verticalScale, 0).rotate(cameraOrientation).add(0, -eyeHeight, 0);
-                cameraOffset.set(0, 0, zoomLevel);
-                cameraOrientation.setTranslation(cameraOffset);
+                cameraAdjustedPosition.set(0, (eyeHeight + seatOffset) * verticalScale, 0).rotate(cameraRotation).add(0, -eyeHeight, 0);
                 sittingSeat.getRiderInterpolatedOrientation(riderOrientation, partialTicks);
-                cameraOrientation.applyRotation(riderOrientation);
+                cameraRotation.multiply(riderOrientation);
+                cameraAdjustedPosition.add(cameraOffset.set(0, 0, zoomLevel).rotate(cameraRotation));
                 return true;
             }
         }

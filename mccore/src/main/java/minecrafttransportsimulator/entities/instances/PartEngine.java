@@ -26,8 +26,6 @@ public class PartEngine extends APart {
     public static String ELECTRICITY_FUEL = "electricity";
 
     //State data.
-    public boolean oilLeak;
-    public boolean fuelLeak;
     public boolean backfired;
     public boolean badShift;
     public boolean running;
@@ -119,8 +117,6 @@ public class PartEngine extends APart {
 
     public PartEngine(AEntityF_Multipart<?> entityOn, IWrapperPlayer placingPlayer, JSONPartDefinition placementDefinition, IWrapperNBT data) {
         super(entityOn, placingPlayer, placementDefinition, data);
-        this.oilLeak = data.getBoolean("oilLeak");
-        this.fuelLeak = data.getBoolean("fuelLeak");
         this.running = data.getBoolean("running");
         this.hours = data.getDouble("hours");
         this.rpm = data.getDouble("rpm");
@@ -141,7 +137,7 @@ public class PartEngine extends APart {
 
         //Verify the vehicle has the right fuel for us.  If not, clear it out.
         //This allows us to swap in an engine with a different fuel type than the last one.
-        if (!vehicleOn.fuelTank.getFluid().isEmpty()) {
+        if (vehicleOn != null && !vehicleOn.fuelTank.getFluid().isEmpty()) {
             switch (definition.engine.type) {
                 case ELECTRIC: {
                     //Check for electricity.
@@ -189,25 +185,12 @@ public class PartEngine extends APart {
                 }
             }
             if (vehicleOn == null || !vehicleOn.isCreative) {
+                double hoursApplied = damage.amount * ConfigSystem.settings.general.engineHoursFactor.value;
                 if (damage.isExplosion) {
-                    hours += damage.amount * 20 * ConfigSystem.settings.general.engineHoursFactor.value;
-                    if (definition.engine.type == JSONPart.EngineType.NORMAL) {
-                        if (!oilLeak)
-                            oilLeak = Math.random() < ConfigSystem.settings.damage.engineLeakProbability.value * 10;
-                        if (!fuelLeak)
-                            fuelLeak = Math.random() < ConfigSystem.settings.damage.engineLeakProbability.value * 10;
-                    }
-                    InterfaceManager.packetInterface.sendToAllClients(new PacketPartEngine(this, damage.amount * 10 * ConfigSystem.settings.general.engineHoursFactor.value, oilLeak, fuelLeak));
-                } else {
-                    hours += damage.amount * 2 * ConfigSystem.settings.general.engineHoursFactor.value;
-                    if (definition.engine.type == JSONPart.EngineType.NORMAL) {
-                        if (!oilLeak)
-                            oilLeak = Math.random() < ConfigSystem.settings.damage.engineLeakProbability.value;
-                        if (!fuelLeak)
-                            fuelLeak = Math.random() < ConfigSystem.settings.damage.engineLeakProbability.value;
-                    }
-                    InterfaceManager.packetInterface.sendToAllClients(new PacketPartEngine(this, damage.amount * ConfigSystem.settings.general.engineHoursFactor.value, oilLeak, fuelLeak));
+                    hoursApplied *= 10;
                 }
+                hours += hoursApplied;
+                InterfaceManager.packetInterface.sendToAllClients(new PacketPartEngine(this, hoursApplied));
             }
         } else if (definition.engine.type == JSONPart.EngineType.NORMAL) {
             stallEngine(Signal.DROWN);
@@ -252,10 +235,8 @@ public class PartEngine extends APart {
                     linkedEngine.linkedEngine = null;
                     linkedEngine = null;
                     if (world.isClient()) {
-                        for (IWrapperEntity entity : world.getEntitiesWithin(new BoundingBox(position, 16, 16, 16))) {
-                            if (entity instanceof IWrapperPlayer) {
-                                ((IWrapperPlayer) entity).displayChatMessage(JSONConfigLanguage.INTERACT_JUMPERCABLE_LINKDROPPED);
-                            }
+                        for (IWrapperPlayer player : world.getPlayersWithin(new BoundingBox(position, 16, 16, 16))) {
+                            player.displayChatMessage(JSONConfigLanguage.INTERACT_JUMPERCABLE_LINKDROPPED);
                         }
                     }
                 } else if (vehicleOn.electricPower + 0.5 < linkedEngine.vehicleOn.electricPower) {
@@ -268,10 +249,8 @@ public class PartEngine extends APart {
                     linkedEngine.linkedEngine = null;
                     linkedEngine = null;
                     if (world.isClient()) {
-                        for (IWrapperEntity entity : world.getEntitiesWithin(new BoundingBox(position, 16, 16, 16))) {
-                            if (entity instanceof IWrapperPlayer) {
-                                ((IWrapperPlayer) entity).displayChatMessage(JSONConfigLanguage.INTERACT_JUMPERCABLE_POWEREQUAL);
-                            }
+                        for (IWrapperPlayer player : world.getPlayersWithin(new BoundingBox(position, 16, 16, 16))) {
+                            player.displayChatMessage(JSONConfigLanguage.INTERACT_JUMPERCABLE_POWEREQUAL);
                         }
                     }
                 }
@@ -375,7 +354,7 @@ public class PartEngine extends APart {
                     if (!isActive) {
                         stallEngine(Signal.FUEL_OUT);
                         InterfaceManager.packetInterface.sendToAllClients(new PacketPartEngine(this, Signal.FUEL_OUT));
-                    } else if (vehicleOn.damageAmount == vehicleOn.definition.general.health) {
+                    } else if (vehicleOn.outOfHealth) {
                         stallEngine(Signal.DEAD_VEHICLE);
                         InterfaceManager.packetInterface.sendToAllClients(new PacketPartEngine(this, Signal.DEAD_VEHICLE));
                     } else if (ConfigSystem.settings.general.engineDimensionWhitelist.value.isEmpty() ? ConfigSystem.settings.general.engineDimensionBlacklist.value.contains(world.getName()) : !ConfigSystem.settings.general.engineDimensionWhitelist.value.contains(world.getName())) {
@@ -430,14 +409,14 @@ public class PartEngine extends APart {
 
                         //Try to get fuel from the vehicle and calculate fuel flow.
                         if (!vehicleOn.isCreative && !vehicleOn.fuelTank.getFluid().isEmpty()) {
-                            fuelFlow += vehicleOn.fuelTank.drain(vehicleOn.fuelTank.getFluid(), getTotalFuelConsumption() * ConfigSystem.settings.general.fuelUsageFactor.value / ConfigSystem.settings.fuel.fuels.get(definition.engine.fuelType).get(vehicleOn.fuelTank.getFluid()) * rpm * (fuelLeak ? 1.5F : 1.0F) / currentMaxRPM, !world.isClient());
+                            fuelFlow += vehicleOn.fuelTank.drain(vehicleOn.fuelTank.getFluid(), getTotalFuelConsumption() * ConfigSystem.settings.general.fuelUsageFactor.value / ConfigSystem.settings.fuel.fuels.get(definition.engine.fuelType).get(vehicleOn.fuelTank.getFluid()) * rpm / currentMaxRPM, !world.isClient());
                         }
 
                         //Add temp based on engine speed.
                         temp += Math.max(0, (7 * rpm / currentMaxRPM - temp / (COLD_TEMP * 2)) / 20) * currentHeatingCoefficient * ConfigSystem.settings.general.engineSpeedTempFactor.value;
 
                         //Adjust oil pressure based on RPM and leak status.
-                        pressure = Math.min(90 - temp / 10, pressure + rpm / currentIdleRPM - 0.5 * (oilLeak ? 5F : 1F) * (pressure / LOW_OIL_PRESSURE));
+                        pressure = Math.min(90 - temp / 10, pressure + rpm / currentIdleRPM - 0.5 * (pressure / LOW_OIL_PRESSURE));
 
                         //Add extra hours and temp if we have low oil.
                         if (pressure < LOW_OIL_PRESSURE && !vehicleOn.isCreative) {
@@ -478,7 +457,7 @@ public class PartEngine extends APart {
                         //Start engine if the RPM is high enough to cause it to start by itself.
                         //Used for drowned engines that come out of the water, or engines that don't
                         //have the ability to engage a starter.
-                        if (rpm >= definition.engine.startRPM && !world.isClient() && vehicleOn.damageAmount < vehicleOn.definition.general.health) {
+                        if (rpm >= definition.engine.startRPM && !world.isClient() && !vehicleOn.outOfHealth) {
                             if (vehicleOn.isCreative || vehicleOn.fuelTank.getFluidLevel() > 0) {
                                 if (!isInLiquid() && magnetoOn) {
                                     startEngine();
@@ -524,7 +503,7 @@ public class PartEngine extends APart {
                         }
                     } else {
                         //Turn on engine if the magneto is on and we have fuel.
-                        if (!world.isClient() && vehicleOn.damageAmount < vehicleOn.definition.general.health) {
+                        if (!world.isClient() && !vehicleOn.outOfHealth) {
                             if (vehicleOn.isCreative || vehicleOn.fuelTank.getFluidLevel() > 0) {
                                 if (magnetoOn) {
                                     startEngine();
@@ -688,8 +667,8 @@ public class PartEngine extends APart {
             }
             if (driveshaftDesiredSpeed != -999) {
                 driveshaftRotation += 360D * driveshaftDesiredSpeed * vehicleOn.speedFactor;
-            } else {
-                driveshaftRotation += 360D * rpm / 1200D / currentGearRatio;
+            } else if (propellerGearboxRatio != 0) {
+                driveshaftRotation += 360D * rpm / 1200D / propellerGearboxRatio;
             }
             if (driveshaftRotation > 3600000) {
                 driveshaftRotation -= 3600000;
@@ -856,10 +835,6 @@ public class PartEngine extends APart {
                 return linkedEngine != null ? 1 : 0;
             case ("engine_hours"):
                 return hours;
-            case ("engine_oilleak"):
-                return oilLeak ? 1 : 0;
-            case ("engine_fuelleak"):
-                return fuelLeak ? 1 : 0;
         }
         if (variable.startsWith("engine_sin_")) {
         	//engine_sin_X This will offset the engine rotation INPUT to the trig function by X
@@ -1210,8 +1185,6 @@ public class PartEngine extends APart {
     @Override
     public IWrapperNBT save(IWrapperNBT data) {
         super.save(data);
-        data.setBoolean("oilLeak", oilLeak);
-        data.setBoolean("fuelLeak", fuelLeak);
         data.setBoolean("running", running);
         data.setDouble("hours", hours);
         data.setDouble("rpm", rpm);

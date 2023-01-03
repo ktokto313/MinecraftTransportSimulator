@@ -54,27 +54,33 @@ public class ItemItem extends AItemPack<JSONItem> implements IItemEntityInteract
 
     @Override
     public boolean canBreakBlocks() {
-        return !definition.item.type.equals(ItemComponentType.WRENCH);
+        return !(definition.item.type.equals(ItemComponentType.WRENCH) || definition.item.type.equals(ItemComponentType.SCREWDRIVER));
     }
 
     @Override
     public CallbackType doEntityInteraction(AEntityE_Interactable<?> entity, BoundingBox hitBox, IWrapperPlayer player, PlayerOwnerState ownerState, boolean rightClick) {
         switch (definition.item.type) {
-            case WRENCH: {
+	    	case WRENCH: 
+	    	case SCREWDRIVER: {
                 if (!entity.world.isClient()) {
                     //If the player isn't the owner of the entity, they can't interact with it.
                     if (!ownerState.equals(PlayerOwnerState.USER)) {
                         if (rightClick) {
                             //Right-clicking opens GUIs.
-                            if (entity instanceof EntityVehicleF_Physics) {
+                            if (player.isSneaking()) {
+                                //If we clicked a part without text, use the master entity instead.  This allows players to click wheels and engines.
+                                if (entity instanceof APart && entity.text.isEmpty()) {
+                                    player.sendPacket(new PacketEntityGUIRequest(((APart) entity).masterEntity, player, PacketEntityGUIRequest.EntityGUIType.TEXT_EDITOR));
+                                } else {
+                                    player.sendPacket(new PacketEntityGUIRequest(entity, player, PacketEntityGUIRequest.EntityGUIType.TEXT_EDITOR));
+                                }
+                            } else if (entity instanceof EntityVehicleF_Physics) {
                                 EntityVehicleF_Physics vehicle = (EntityVehicleF_Physics) entity;
                                 if (ConfigSystem.settings.general.devMode.value && vehicle.allParts.contains(player.getEntityRiding())) {
                                     player.sendPacket(new PacketEntityGUIRequest(vehicle, player, PacketEntityGUIRequest.EntityGUIType.PACK_EXPORTER));
                                 } else {
                                     player.sendPacket(new PacketEntityGUIRequest(vehicle, player, PacketEntityGUIRequest.EntityGUIType.INSTRUMENTS));
                                 }
-                            } else if (player.isSneaking()) {
-                                player.sendPacket(new PacketEntityGUIRequest(entity, player, PacketEntityGUIRequest.EntityGUIType.TEXT_EDITOR));
                             }
                         } else {
                             //Left clicking removes parts, or removes vehicles, if we were sneaking.
@@ -132,6 +138,8 @@ public class ItemItem extends AItemPack<JSONItem> implements IItemEntityInteract
                 return CallbackType.NONE;
             }
             case KEY: {
+                //Keys always act on top-most entity.  If we are a part, get our master entity.
+                AEntityE_Interactable<?> lockable = entity instanceof APart ? ((APart) entity).masterEntity : entity;
                 if (rightClick && !entity.world.isClient()) {
                     //Try to lock the entity.
                     //First check to see if we need to set this key's entity.
@@ -140,10 +148,10 @@ public class ItemItem extends AItemPack<JSONItem> implements IItemEntityInteract
                     UUID keyVehicleUUID = data.getUUID("vehicle");
                     if (keyVehicleUUID == null) {
                         //Check if we are the owner before making this a valid key.
-                        if (entity.ownerUUID != null && ownerState.equals(PlayerOwnerState.USER)) {
+                        if (lockable.ownerUUID != null && ownerState.equals(PlayerOwnerState.USER)) {
                             player.sendPacket(new PacketPlayerChatMessage(player, JSONConfigLanguage.INTERACT_KEY_NOTOWNER));
                         } else {
-                            keyVehicleUUID = entity.uniqueUUID;
+                            keyVehicleUUID = lockable.uniqueUUID;
                             data.setUUID("vehicle", keyVehicleUUID);
                             stack.setData(data);
                             player.sendPacket(new PacketPlayerChatMessage(player, JSONConfigLanguage.INTERACT_KEY_BIND));
@@ -153,16 +161,16 @@ public class ItemItem extends AItemPack<JSONItem> implements IItemEntityInteract
 
                     //Try to lock or unlock this entity.
                     //If we succeed, send callback to clients to change locked state.
-                    if (!keyVehicleUUID.equals(entity.uniqueUUID)) {
+                    if (!keyVehicleUUID.equals(lockable.uniqueUUID)) {
                         player.sendPacket(new PacketPlayerChatMessage(player, JSONConfigLanguage.INTERACT_KEY_WRONGKEY));
                     } else {
                         if (entity instanceof PartSeat) {
                             //Entity clicked is a seat, don't do locking changes, instead, change seat.
                             //Returning skip will make the seat-clicking code activate in the packet.
                             return CallbackType.SKIP;
-                        } else if (entity.locked) {
+                        } else if (lockable.locked) {
                             //Unlock entity and process hitbox action if it's a closed door.
-                            entity.toggleLock();
+                            lockable.toggleLock();
                             player.sendPacket(new PacketPlayerChatMessage(player, JSONConfigLanguage.INTERACT_KEY_UNLOCK));
                             if (hitBox.definition != null) {
                                 if (hitBox.definition.variableName != null && !entity.isVariableActive(hitBox.definition.variableName) && hitBox.definition.variableName.startsWith("door")) {
@@ -172,7 +180,7 @@ public class ItemItem extends AItemPack<JSONItem> implements IItemEntityInteract
                         } else {
                             //Lock vehicle.  Don't interact with hitbox unless it's NOT a door, as the locking code will close doors.
                             //If we skipped, we'd just re-open the closed door.
-                            entity.toggleLock();
+                            lockable.toggleLock();
                             player.sendPacket(new PacketPlayerChatMessage(player, JSONConfigLanguage.INTERACT_KEY_LOCK));
                             if (hitBox.definition != null) {
                                 if (hitBox.definition.variableName != null && entity.isVariableActive(hitBox.definition.variableName) && !hitBox.definition.variableName.startsWith("door")) {

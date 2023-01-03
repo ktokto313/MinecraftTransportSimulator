@@ -214,6 +214,7 @@ public class JSONConfigLanguage {
 
     public static final LanguageEntry INTERACT_JERRYCAN_EMPTY = new LanguageEntry("interact.jerrycan.empty", "This jerrycan is empty and cannot fuel this vehicle.");
     public static final LanguageEntry INTERACT_JERRYCAN_WRONGTYPE = new LanguageEntry("interact.jerrycan.wrongtype", "This jerrycan does not contain the same liquid as what is in the vehicle.");
+    public static final LanguageEntry INTERACT_JERRYCAN_WRONGENGINES = new LanguageEntry("interact.jerrycan.wrongengines", "The contents in this jerrycan is not a valid fuel for the engines in the vehicle.  Check the manual for details.");
     public static final LanguageEntry INTERACT_JERRYCAN_TOOFULL = new LanguageEntry("interact.jerrycan.toofull", "This vehicle is already full of fuel.  You cannot add any more.");
     public static final LanguageEntry INTERACT_JERRYCAN_SUCCESS = new LanguageEntry("interact.jerrycan.success", "Added 1000mb of fluid to this vehicle.");
 
@@ -264,8 +265,6 @@ public class JSONConfigLanguage {
     public static final LanguageEntry ITEMINFO_ENGINE_FUELTYPE = new LanguageEntry("iteminfo.engine.fueltype", "Fuel type: ");
     public static final LanguageEntry ITEMINFO_ENGINE_FLUIDS = new LanguageEntry("iteminfo.engine.fluids", "Takes Fluids: ");
     public static final LanguageEntry ITEMINFO_ENGINE_HOURS = new LanguageEntry("iteminfo.engine.hours", "Runtime hours: ");
-    public static final LanguageEntry ITEMINFO_ENGINE_OILLEAK = new LanguageEntry("iteminfo.engine.oilleak", "§cHas an oil leak!");
-    public static final LanguageEntry ITEMINFO_ENGINE_FUELLEAK = new LanguageEntry("iteminfo.engine.fuelleak", "§cHas a fuel leak!");
 
     public static final LanguageEntry ITEMINFO_GROUND_DEVICE_DIAMETER = new LanguageEntry("iteminfo.ground_device.diameter", "Diameter: ");
     public static final LanguageEntry ITEMINFO_GROUND_DEVICE_MOTIVEFRICTION = new LanguageEntry("iteminfo.ground_device.motivefrictionmotivefriction", "Power friction: ");

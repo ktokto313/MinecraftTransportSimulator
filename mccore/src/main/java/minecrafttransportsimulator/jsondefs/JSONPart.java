@@ -93,6 +93,9 @@ public class JSONPart extends AJSONPartProvider {
         @JSONDescription("If true, this part will be able to be removed by hand and without a wrench.  This also bypasses owner requirements (but not vehicle locking).  Useful for small parts like luggage that anyone should be able to remove at any time.")
         public boolean canBeRemovedByHand;
 
+        @JSONDescription("If true, this part will be able to be removed by hand and without a wrench.  This also bypasses owner requirements (but not vehicle locking).  Useful for small parts like luggage that anyone should be able to remove at any time.")
+        public boolean mustBeRemovedByScrewdriver;
+
         @JSONDescription("If true, this part will forward damage onto the vehicle it is on when hit by a bullet.  This will also cause the bullet to stop when it hits this part.  Engines ignore this behavior and always forward damage.")
         public boolean forwardsDamage;
 
@@ -101,6 +104,9 @@ public class JSONPart extends AJSONPartProvider {
 
         @JSONDescription("If true, this part will fall to the ground when placed, if it's not on the ground already when placed.  Only valid for parts with canBePlacedOnGround as true.")
         public boolean fallsToGround;
+
+        @JSONDescription("If true, then when this part runs out of health it will be destroyed and removed rather than just become inoperable.")
+        public boolean destroyable;
 
         @JSONDescription("The width of the part.")
         public float width;
@@ -353,11 +359,20 @@ public class JSONPart extends AJSONPartProvider {
     }
 
     public static class JSONPartGun {
+        @JSONDescription("How a gun that has guided bullets determines if it has a lock.")
+        public LockOnType lockOnType;
+
+        @JSONDescription("Type of target this gun can lock on to.")
+        public TargetType targetType;
+        
         @JSONDescription("If set, this causes the gun to automatically reload from the vehicle's inventory when its ammo count hits 0.  Guns will prefer to reload the same ammo that was previously in the gun, and will only reload different (yet compatible) ammo if the old ammo is not found.")
         public boolean autoReload;
 
         @JSONDescription("If set and true, then this gun part will be able to be held and fired from the player's hand.  All animations, and lighting applies here, so keep this in mind. If this is set, then handHeldNormalOffset and handHeldAimingOffset MUST be included!  Note that custom cameras will work when hand-held, but they will not be activated via the standard F5 cycling.  Instead, they will be activated when the player sneaks.  This is intended to allow for scopes and the like.")
         public boolean handHeld;
+
+        @JSONDescription("If true, then this gun will force the custom camera when hand-held.  Useful for custom HUDs.  Does not affect third-person mode.")
+        public boolean forceHandheldCameras;
 
         @JSONDescription("If set, the gun will only be able to be fired once per button press.")
         public boolean isSemiAuto;
@@ -424,6 +439,12 @@ public class JSONPart extends AJSONPartProvider {
 
         @JSONDescription("Used when resetPosition is true. Defaults to 0 if not set.")
         public float defaultPitch;
+        
+        @JSONDescription("How far away the gun will be able to lock targets.")
+        public int lockRange;
+
+        @JSONDescription("Angle in degrees around gun's orientation that it wil see targets.")
+        public double lockMaxAngle;
 
         @JSONRequired(dependentField = "handHeld", dependentValues = {"true"})
         @JSONDescription("The offset where this gun will be when held normally by the player.  An offset of 0,0,0 will render the gun in the center of the player's right shoulder rotation point.  For reference, this is 0.3125 blocks to the right, and 1.375 blocks from the bottom-center of the player's feet.")
@@ -439,6 +460,30 @@ public class JSONPart extends AJSONPartProvider {
 
         @Deprecated
         public float length;
+    }
+    
+    public enum LockOnType {
+        @JSONDescription("Look at stuff to get a lock")
+        DEFAULT,
+        @JSONDescription("The gun itself must see the target.")
+        BORESIGHT,
+        @JSONDescription("Goes where the player is pointed")
+        MANUAL,
+        @JSONDescription("Goes where the radar tells it to.")
+        RADAR
+    }
+
+    public enum TargetType {
+        @JSONDescription("Will lock on to anything. Default")
+        ALL,
+        @JSONDescription("Only Locks onto ground vehicles.")
+        GROUND,
+        @JSONDescription("Only locks on to aircraft.")
+        AIRCRAFT,
+        @JSONDescription("Will lock either aircraft or ground vehicles. Hard targets.")
+        HARD,
+        @JSONDescription("Only locks on to players or mobs.")
+        SOFT
     }
 
     public static class JSONPartInteractable {
